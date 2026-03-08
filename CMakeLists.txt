@@ -18,6 +18,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Set compiler options to support UTF-8 encoding
 if(MSVC)
     add_compile_options("/utf-8")
+    # Use dynamic CRT (/MD) to match onnxruntime and avoid multiply-defined symbol errors
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "" FORCE)
 else()
     add_compile_options("-finput-charset=UTF-8" "-fexec-charset=UTF-8")
 endif()
@@ -85,6 +87,10 @@ if(APPLE AND CMAKE_OSX_ARCHITECTURES)
 endif()
 
 if(WIN32)
+    # Force dynamic CRT (/MD) to avoid LNK4098 / multiply-defined symbol errors
+    list(APPEND ONNXRUNTIME_EXTRA_CMAKE_ARGS
+        "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
+    )
     set(ONNXRUNTIME_BYPRODUCTS
         "${ONNXRUNTIME_INSTALL_DIR}/lib/onnxruntime.lib"
         "${ONNXRUNTIME_INSTALL_DIR}/bin/onnxruntime.dll"
