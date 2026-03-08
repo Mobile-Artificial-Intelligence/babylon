@@ -29,8 +29,8 @@ int main(int argc, char** argv) {
     }
 
     // VITS TTS
-    if (babylon_tts_init("./models/amy.onnx") == 0) {
-        babylon_tts(text, "./c_output.wav");
+    if (babylon_tts_init("./models/curie.onnx") == 0) {
+        babylon_tts(text, "./vits_output.wav");
         babylon_tts_free();
     }
 
