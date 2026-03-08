@@ -4,7 +4,7 @@
 
 static OpenPhonemizer::Session* op     = nullptr;
 static Vits::Session*           vits   = nullptr;
-static Kitten::Session*         kitten = nullptr;
+static Kokoro::Session*         kokoro = nullptr;
 
 extern "C" {
 
@@ -95,25 +95,25 @@ extern "C" {
         vits = nullptr;
     }
 
-    BABYLON_EXPORT int babylon_kitten_init(const char* model_path) {
+    BABYLON_EXPORT int babylon_kokoro_init(const char* model_path) {
         try {
-            kitten = new Kitten::Session(model_path);
+            kokoro = new Kokoro::Session(model_path);
             return 0;
         }
         catch (const std::exception& e) {
-            std::cerr << "[babylon] kitten init error: " << e.what() << std::endl;
+            std::cerr << "[babylon] kokoro init error: " << e.what() << std::endl;
             return 1;
         }
     }
 
-    BABYLON_EXPORT void babylon_kitten_tts(
+    BABYLON_EXPORT void babylon_kokoro_tts(
         const char* text,
         const char* voice_path,
         float speed,
         const char* output_path
     ) {
-        if (!kitten) {
-            std::cerr << "[babylon] Kitten session not initialized." << std::endl;
+        if (!kokoro) {
+            std::cerr << "[babylon] Kokoro session not initialized." << std::endl;
             return;
         }
         if (!op) {
@@ -122,16 +122,16 @@ extern "C" {
         }
         try {
             std::string phonemes = op->phonemize(text);
-            kitten->tts(phonemes, voice_path, speed, output_path);
+            kokoro->tts(phonemes, voice_path, speed, output_path);
         }
         catch (const std::exception& e) {
-            std::cerr << "[babylon] kitten_tts error: " << e.what() << std::endl;
+            std::cerr << "[babylon] kokoro_tts error: " << e.what() << std::endl;
         }
     }
 
-    BABYLON_EXPORT void babylon_kitten_free(void) {
-        delete kitten;
-        kitten = nullptr;
+    BABYLON_EXPORT void babylon_kokoro_free(void) {
+        delete kokoro;
+        kokoro = nullptr;
     }
 
 } // extern "C"

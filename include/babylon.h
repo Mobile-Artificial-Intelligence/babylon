@@ -36,11 +36,11 @@ BABYLON_EXPORT void babylon_tts(const char* text, const char* output_path);
 
 BABYLON_EXPORT void babylon_tts_free(void);
 
-BABYLON_EXPORT int babylon_kitten_init(const char* model_path);
+BABYLON_EXPORT int babylon_kokoro_init(const char* model_path);
 
-BABYLON_EXPORT void babylon_kitten_tts(const char* text, const char* voice_path, float speed, const char* output_path);
+BABYLON_EXPORT void babylon_kokoro_tts(const char* text, const char* voice_path, float speed, const char* output_path);
 
-BABYLON_EXPORT void babylon_kitten_free(void);
+BABYLON_EXPORT void babylon_kokoro_free(void);
 
 #ifdef __cplusplus
 }
@@ -111,7 +111,7 @@ namespace Vits {
   };
 }
 
-namespace Kitten {
+namespace Kokoro {
 
   // Encode IPA phoneme string to Kokoro model token IDs
   // Returns vector wrapped with special token 0 on both ends

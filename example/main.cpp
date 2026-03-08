@@ -23,9 +23,9 @@ int main(int argc, char** argv) {
     std::vector<std::string> phoneme_chars = utf8_chars(phonemes);
     vits.tts(phoneme_chars, "./cpp_output.wav");
 
-    // Kitten (Kokoro) TTS
-    Kitten::Session kitten("./models/kokoro-quantized.onnx");
-    kitten.tts(phonemes, "./models/voices/en-US-heart-kokoro.bin", 1.0f, "./kitten_output.wav");
+    // Kokoro TTS
+    Kokoro::Session kokoro("./models/kokoro-quantized.onnx");
+    kokoro.tts(phonemes, "./models/voices/en-US-heart-kokoro.bin", 1.0f, "./kokoro_output.wav");
 
     // Kokoro token IDs
     std::vector<int64_t> ids = op.phonemize_tokens(text);

@@ -34,10 +34,10 @@ int main(int argc, char** argv) {
         babylon_tts_free();
     }
 
-    // Kitten (Kokoro) TTS
-    if (babylon_kitten_init("./models/kokoro-quantized.onnx") == 0) {
-        babylon_kitten_tts(text, "./models/voices/en-US-heart-kokoro.bin", 1.0f, "./kitten_output.wav");
-        babylon_kitten_free();
+    // Kokoro TTS
+    if (babylon_kokoro_init("./models/kokoro-quantized.onnx") == 0) {
+        babylon_kokoro_tts(text, "./models/voices/en-US-heart-kokoro.bin", 1.0f, "./kokoro_output.wav");
+        babylon_kokoro_free();
     }
 
     babylon_g2p_free();

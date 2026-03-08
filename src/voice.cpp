@@ -192,10 +192,10 @@ void Session::tts(const std::vector<std::string>& phonemes, const std::string& o
 } // namespace Vits
 
 // ---------------------------------------------------------------------------
-// Kitten (Kokoro) namespace
+// Kokoro namespace
 // ---------------------------------------------------------------------------
 
-namespace Kitten {
+namespace Kokoro {
 
 // Output tokenizer vocab for Kokoro model
 // Matches OpenPhonemizerOutputTokenizer.kt
@@ -300,7 +300,7 @@ std::vector<int64_t> encode_phonemes(const std::string& phonemes) {
 }
 
 Session::Session(const std::string& model_path)
-    : env(ORT_LOGGING_LEVEL_WARNING, "Kitten"), session(nullptr)
+    : env(ORT_LOGGING_LEVEL_WARNING, "Kokoro"), session(nullptr)
 {
     env.DisableTelemetryEvents();
 
@@ -317,7 +317,7 @@ Session::~Session() {
 std::vector<float> Session::load_voice_style(const std::string& voice_path, int n_tokens) {
     std::ifstream f(voice_path, std::ios::binary);
     if (!f.is_open()) {
-        throw std::runtime_error("[Kitten] Could not open voice file: " + voice_path);
+        throw std::runtime_error("[Kokoro] Could not open voice file: " + voice_path);
     }
 
     // Read all float32 values (little-endian)
@@ -356,7 +356,7 @@ void Session::tts(
     // 2. Load voice style vector
     std::vector<float> style = load_voice_style(voice_path, n_tokens);
     if ((int)style.size() != STYLE_DIM) {
-        throw std::runtime_error("[Kitten] Voice style vector has wrong size.");
+        throw std::runtime_error("[Kokoro] Voice style vector has wrong size.");
     }
 
     // 3. Build ONNX inputs
@@ -390,7 +390,7 @@ void Session::tts(
         OUTPUT_NAMES.data(), OUTPUT_NAMES.size()
     );
 
-    if (outputs.empty()) throw std::runtime_error("[Kitten] No output tensor.");
+    if (outputs.empty()) throw std::runtime_error("[Kokoro] No output tensor.");
 
     const float* waveform = outputs.front().GetTensorData<float>();
     auto out_shape = outputs.front().GetTensorTypeAndShapeInfo().GetShape();
@@ -408,4 +408,4 @@ void Session::tts(
     write_wav(output_path, pcm.data(), pcm.size(), SAMPLE_RATE);
 }
 
-} // namespace Kitten
+} // namespace Kokoro

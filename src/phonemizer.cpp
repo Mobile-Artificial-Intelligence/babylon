@@ -373,7 +373,7 @@ std::string Session::phonemize(const std::string& text) {
 }
 
 std::vector<int64_t> Session::phonemize_tokens(const std::string& text) {
-    return Kitten::encode_phonemes(phonemize(text));
+    return Kokoro::encode_phonemes(phonemize(text));
 }
 
 } // namespace OpenPhonemizer
