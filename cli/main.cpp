@@ -231,9 +231,10 @@ static bool   g_vits_ready   = false;
 static bool init_g2p() {
     if (g_g2p_ready) return true;
     if (g_cfg.phonemizer_model.empty()) { std::cerr << "Error: --phonemizer-model not set.\n"; return false; }
-    babylon_g2p_options_t opts{};
-    opts.dictionary_path = g_cfg.dictionary.empty() ? nullptr : g_cfg.dictionary.c_str();
-    opts.use_punctuation = 1;
+    babylon_g2p_options_t opts{
+        g_cfg.dictionary.empty() ? nullptr : g_cfg.dictionary.c_str(),
+        1
+    };
     if (babylon_g2p_init(g_cfg.phonemizer_model.c_str(), opts) != 0) {
         std::cerr << "Error: failed to load G2P model: " << g_cfg.phonemizer_model << "\n";
         return false;
