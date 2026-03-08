@@ -118,6 +118,9 @@ ExternalProject_Add(
         -Donnxruntime_BUILD_CSHARP=OFF
         -Donnxruntime_ENABLE_PYTHON=OFF
         -Donnxruntime_USE_FULL_PROTOBUF=OFF
+        # Prevent FetchContent from finding Homebrew/system packages (e.g. re2→absl)
+        # which conflict with onnxruntime's own source builds of those deps.
+        -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER
         ${ONNXRUNTIME_EXTRA_CMAKE_ARGS}
     BUILD_BYPRODUCTS
         ${ONNXRUNTIME_BYPRODUCTS}
@@ -225,4 +228,11 @@ option(BUILD_EXAMPLES "Build examples" OFF)
 
 if(BUILD_EXAMPLES)
     add_subdirectory(example)
+endif()
+
+# Include CLI
+option(BUILD_CLI "Build babylon CLI" OFF)
+
+if(BUILD_CLI)
+    add_subdirectory(cli)
 endif()
