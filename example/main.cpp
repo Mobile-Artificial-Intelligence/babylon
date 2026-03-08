@@ -2,35 +2,35 @@
 #include <iostream>
 
 int main(int argc, char** argv) {
-    std::string dp_model_path = "./models/deep_phonemizer.onnx";
-    std::string vits_model_path = "./models/curie.onnx";
-    std::string text;
-
     if (argc < 2) {
         std::cerr << "Usage: babylon <text>" << std::endl;
         return 1;
     }
 
-    text = argv[1];
+    std::string text = argv[1];
+    std::string op_model   = "./models/open-phonemizer.onnx";
+    std::string dict_path  = "./models/dictionary.json";
+    std::string vits_model = "./models/amy.onnx";
 
-    DeepPhonemizer::Session dp(dp_model_path, "en_us", true, true);
+    // OpenPhonemizer
+    OpenPhonemizer::Session op(op_model, dict_path, true);
 
-    Vits::Session vits(vits_model_path);
+    std::string phonemes = op.phonemize(text);
+    std::cout << "Phonemes: " << phonemes << std::endl;
 
-    std::vector<std::string> phonemes = dp.g2p(text);
+    // VITS TTS
+    Vits::Session vits(vits_model);
+    std::vector<std::string> phoneme_chars = utf8_chars(phonemes);
+    vits.tts(phoneme_chars, "./cpp_output.wav");
 
-    for (const auto& phoneme : phonemes) {
-        std::cout << phoneme << " ";
-    }
-    std::cout << std::endl;
+    // Kitten (Kokoro) TTS
+    Kitten::Session kitten("./models/kokoro-quantized.onnx");
+    kitten.tts(phonemes, "./models/voices/en-US-heart-kokoro.bin", 1.0f, "./kitten_output.wav");
 
-    vits.tts(phonemes, "./cpp_output.wav");
-
-    std::vector<int64_t> phoneme_ids = dp.g2p_tokens(text);
-
-    for (const auto& id : phoneme_ids) {
-        std::cout << id << " ";
-    }
+    // Kokoro token IDs
+    std::vector<int64_t> ids = op.phonemize_tokens(text);
+    std::cout << "Kokoro token IDs:";
+    for (auto id : ids) std::cout << " " << id;
     std::cout << std::endl;
 
     return 0;

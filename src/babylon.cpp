@@ -1,101 +1,137 @@
 #include "babylon.h"
 #include <iostream>
+#include <cstring>
 
-static DeepPhonemizer::Session* dp;
-static Vits::Session* vits;
+static OpenPhonemizer::Session* op     = nullptr;
+static Vits::Session*           vits   = nullptr;
+static Kitten::Session*         kitten = nullptr;
 
 extern "C" {
+
     BABYLON_EXPORT int babylon_g2p_init(const char* model_path, babylon_g2p_options_t options) {
         try {
-            dp = new DeepPhonemizer::Session(model_path, options.language, options.use_dictionaries, options.use_punctuation);
+            const std::string dict_path = options.dictionary_path ? options.dictionary_path : "";
+            op = new OpenPhonemizer::Session(model_path, dict_path, options.use_punctuation != 0);
             return 0;
-        } 
+        }
         catch (const std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "[babylon] g2p init error: " << e.what() << std::endl;
             return 1;
         }
     }
 
     BABYLON_EXPORT char* babylon_g2p(const char* text) {
-        if (dp == nullptr) {
-            std::cerr << "DeepPhonemizer session not initialized." << std::endl;
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
             return nullptr;
         }
-
-        std::string phonemes = "";
         try {
-            std::vector<std::string> phoneme_vec = dp->g2p(text);
-            for (const auto& phoneme : phoneme_vec) {
-                phonemes += phoneme + " ";
-            }
-        } 
-        catch (const std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::string phonemes = op->phonemize(text);
+            return strdup(phonemes.c_str());
         }
-
-        return strdup(phonemes.c_str());
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] g2p error: " << e.what() << std::endl;
+            return nullptr;
+        }
     }
 
+    // Returns Kokoro-compatible token IDs, terminated by -1
     BABYLON_EXPORT int* babylon_g2p_tokens(const char* text) {
-        if (dp == nullptr) {
-            std::cerr << "DeepPhonemizer session not initialized." << std::endl;
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
             return nullptr;
         }
-
-        std::vector<int64_t> phoneme_ids;
         try {
-            phoneme_ids = dp->g2p_tokens(text);
-        } 
+            std::vector<int64_t> ids = op->phonemize_tokens(text);
+            ids.push_back(-1); // sentinel
+            int* arr = new int[ids.size()];
+            for (size_t i = 0; i < ids.size(); ++i) arr[i] = (int)ids[i];
+            return arr;
+        }
         catch (const std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "[babylon] g2p_tokens error: " << e.what() << std::endl;
+            return nullptr;
         }
-
-        phoneme_ids.push_back(-1); // Sentinel value
-
-        int* phoneme_ids_arr = new int[phoneme_ids.size()];
-        for (size_t i = 0; i < phoneme_ids.size(); i++) {
-            phoneme_ids_arr[i] = phoneme_ids[i];
-        }
-
-        return phoneme_ids_arr;
     }
 
     BABYLON_EXPORT void babylon_g2p_free(void) {
-        delete dp;
+        delete op;
+        op = nullptr;
     }
 
     BABYLON_EXPORT int babylon_tts_init(const char* model_path) {
         try {
             vits = new Vits::Session(model_path);
             return 0;
-        } 
+        }
         catch (const std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "[babylon] tts init error: " << e.what() << std::endl;
             return 1;
         }
     }
 
     BABYLON_EXPORT void babylon_tts(const char* text, const char* output_path) {
-        if (vits == nullptr) {
-            std::cerr << "VITS session not initialized." << std::endl;
+        if (!vits) {
+            std::cerr << "[babylon] VITS session not initialized." << std::endl;
             return;
         }
-
-        if (dp == nullptr) {
-            std::cerr << "DeepPhonemizer session not initialized." << std::endl;
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
             return;
         }
-
         try {
-            std::vector<std::string> phonemes = dp->g2p(text);
+            // Get IPA phoneme string, then split into individual unicode chars for VITS
+            std::string phoneme_str = op->phonemize(text);
+            std::vector<std::string> phonemes = utf8_chars(phoneme_str);
             vits->tts(phonemes, output_path);
-        } 
+        }
         catch (const std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "[babylon] tts error: " << e.what() << std::endl;
         }
     }
 
     BABYLON_EXPORT void babylon_tts_free(void) {
         delete vits;
+        vits = nullptr;
     }
-}
+
+    BABYLON_EXPORT int babylon_kitten_init(const char* model_path) {
+        try {
+            kitten = new Kitten::Session(model_path);
+            return 0;
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] kitten init error: " << e.what() << std::endl;
+            return 1;
+        }
+    }
+
+    BABYLON_EXPORT void babylon_kitten_tts(
+        const char* text,
+        const char* voice_path,
+        float speed,
+        const char* output_path
+    ) {
+        if (!kitten) {
+            std::cerr << "[babylon] Kitten session not initialized." << std::endl;
+            return;
+        }
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
+            return;
+        }
+        try {
+            std::string phonemes = op->phonemize(text);
+            kitten->tts(phonemes, voice_path, speed, output_path);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] kitten_tts error: " << e.what() << std::endl;
+        }
+    }
+
+    BABYLON_EXPORT void babylon_kitten_free(void) {
+        delete kitten;
+        kitten = nullptr;
+    }
+
+} // extern "C"

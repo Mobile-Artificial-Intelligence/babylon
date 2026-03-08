@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <unordered_set>
 #include <onnxruntime_cxx_api.h>
 
 extern "C" {
@@ -18,8 +17,7 @@ extern "C" {
 #endif
 
 typedef struct {
-  const char* language;
-  const unsigned char use_dictionaries;
+  const char* dictionary_path;
   const unsigned char use_punctuation;
 } babylon_g2p_options_t;
 
@@ -27,6 +25,7 @@ BABYLON_EXPORT int babylon_g2p_init(const char* model_path, babylon_g2p_options_
 
 BABYLON_EXPORT char* babylon_g2p(const char* text);
 
+// Returns Kokoro-compatible token IDs (int array terminated by -1)
 BABYLON_EXPORT int* babylon_g2p_tokens(const char* text);
 
 BABYLON_EXPORT void babylon_g2p_free(void);
@@ -37,51 +36,52 @@ BABYLON_EXPORT void babylon_tts(const char* text, const char* output_path);
 
 BABYLON_EXPORT void babylon_tts_free(void);
 
+BABYLON_EXPORT int babylon_kitten_init(const char* model_path);
+
+BABYLON_EXPORT void babylon_kitten_tts(const char* text, const char* voice_path, float speed, const char* output_path);
+
+BABYLON_EXPORT void babylon_kitten_free(void);
+
 #ifdef __cplusplus
 }
 
-namespace DeepPhonemizer {
-  class SequenceTokenizer {
-    public:
-      SequenceTokenizer(const std::vector<std::string>& symbols, const std::vector<std::string>& languages, int char_repeats, bool lowercase = true, bool append_start_end = true);
-      std::vector<int64_t> operator()(const std::string& sentence, const std::string& language) const;
-      std::vector<std::string> decode(const std::vector<int64_t>& sequence) const;
-      std::vector<int64_t> clean(const std::vector<int64_t>& sequence) const;
-      int64_t get_token(const std::string& token) const;
-  
-    private:
-      std::vector<std::string> tokens;
-      int char_repeats;
-      bool lowercase;
-      bool append_start_end;
-      int pad_index;
-      int end_index;
-      std::string pad_token;
-      std::string end_token;
-      std::unordered_set<std::string> special_tokens;
-  };
+// Text normalization (numbers, ordinals, abbreviations)
+std::string normalize_text(const std::string& text);
+
+// Split UTF-8 string into individual unicode character strings
+std::vector<std::string> utf8_chars(const std::string& s);
+
+namespace OpenPhonemizer {
+
+  // Encode a single word to input token IDs for the ONNX model (padded to 64)
+  std::vector<int64_t> encode_word(const std::string& word);
+
+  // Decode argmax logits [seq_len x vocab_size] to IPA phoneme string
+  std::string decode_phonemes(const float* logits, int seq_len, int vocab_size);
 
   class Session {
     public:
-      Session(const std::string& model_path, const std::string language = "en_us", const bool use_dictionaries = true, const bool use_punctuation = false);
+      Session(
+        const std::string& model_path,
+        const std::string& dictionary_path = "",
+        const bool use_punctuation = false
+      );
       ~Session();
 
-      std::vector<std::string> g2p(const std::string& text);
-      std::vector<int64_t> g2p_tokens(const std::string& text);
+      // Returns concatenated IPA phoneme string for the full text
+      std::string phonemize(const std::string& text);
+
+      // Returns Kokoro-compatible token IDs
+      std::vector<int64_t> phonemize_tokens(const std::string& text);
 
     private:
-      std::string language;
-      bool use_dictionaries;
       bool use_punctuation;
+      Ort::Env env;
       Ort::Session* session;
-      SequenceTokenizer* text_tokenizer;
-      SequenceTokenizer* phoneme_tokenizer;
-      std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> dictionaries;
+      std::unordered_map<std::string, std::string> dictionary;
 
-      std::vector<int64_t> g2p_tokens_internal(const std::string& text);
+      std::string phonemize_word(const std::string& word);
   };
-
-  std::vector<std::string> clean_text(const std::string& text);
 }
 
 namespace Vits {
@@ -105,10 +105,42 @@ namespace Vits {
       int sample_rate;
       std::vector<float> scales;
 
+      Ort::Env env;
       Ort::Session* session;
       SequenceTokenizer* phoneme_tokenizer;
   };
 }
+
+namespace Kitten {
+
+  // Encode IPA phoneme string to Kokoro model token IDs
+  // Returns vector wrapped with special token 0 on both ends
+  std::vector<int64_t> encode_phonemes(const std::string& phonemes);
+
+  class Session {
+    public:
+      Session(const std::string& model_path);
+      ~Session();
+
+      void tts(
+        const std::string& phonemes,
+        const std::string& voice_path,
+        float speed,
+        const std::string& output_path
+      );
+
+    private:
+      static const int STYLE_DIM = 256;
+      static const int MAX_PHONEME_LENGTH = 510;
+      static const int SAMPLE_RATE = 24000;
+
+      Ort::Env env;
+      Ort::Session* session;
+
+      std::vector<float> load_voice_style(const std::string& voice_path, int n_tokens);
+  };
+}
+
 #endif
 
 #endif // BABYLON_H
