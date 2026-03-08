@@ -85,10 +85,22 @@ static float json_float(const std::string& json, const std::string& key, float d
     try { return std::stof(json.substr(pos)); } catch (...) { return def; }
 }
 
-static Config load_config(const std::string& path) {
+// Returns the directory that contains the running executable (from argv[0]).
+// Falls back to "." if argv[0] has no directory component.
+static std::string exe_dir(const char* argv0) {
+    std::filesystem::path p(argv0);
+    auto dir = p.parent_path();
+    return dir.empty() ? "." : dir.string();
+}
+
+static Config load_config(const std::string& path, bool warn_if_missing = true) {
     Config cfg;
     std::ifstream f(path);
-    if (!f) { std::cerr << "Warning: cannot open config: " << path << "\n"; return cfg; }
+    if (!f) {
+        if (warn_if_missing)
+            std::cerr << "Warning: cannot open config: " << path << "\n";
+        return cfg;
+    }
     std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 
     auto s = [&](const std::string& k) { return json_str(json, k); };
@@ -146,14 +158,17 @@ static void print_help_tts() {
         "Convert text to speech.\n"
         "\n"
         "Options:\n"
-        "  --engine <kokoro|vits>  TTS engine to use (default: kokoro)\n"
-        "  --kokoro-voice <path>   Voice style file or name (Kokoro only)\n"
+        "  --kokoro                Use Kokoro TTS engine (default)\n"
+        "  --vits                  Use VITS TTS engine\n"
+        "  --engine <kokoro|vits>  TTS engine to use (longhand)\n"
+        "  -v, --voice <name>      Kokoro voice name (filename without .bin)\n"
+        "  --kokoro-voice <name>   Same as --voice\n"
         "  --speed <float>         Speech speed for Kokoro (default: 1.0)\n"
         "  -o <path>               Output WAV file (default: output.wav)\n"
         "  -h, --help              Show this help\n"
         "\n"
-        "When --kokoro-voices <dir> is set, --kokoro-voice can be a bare name\n"
-        "  (e.g. 'heart') and the .bin file will be looked up automatically.\n"
+        "Voice names are looked up in the kokoro_voices directory from config.\n"
+        "  e.g. --voice heart  →  <kokoro_voices>/heart.bin\n"
         "\n"
         "Global model flags (--phonemizer-model, --kokoro-model, etc.) also apply.\n";
 }
@@ -278,12 +293,15 @@ static int cmd_tts(int argc, char** argv) {
 
     for (int i = 0; i < argc; ++i) {
         std::string a = argv[i];
-        if      (a == "-h" || a == "--help")           { print_help_tts(); return 0; }
-        else if (a == "--engine"       && i+1 < argc)  engine = argv[++i];
-        else if (a == "--kokoro-voice" && i+1 < argc)  voice  = argv[++i];
-        else if (a == "--speed"        && i+1 < argc)  speed  = std::stof(argv[++i]);
-        else if (a == "-o"             && i+1 < argc)  output = argv[++i];
-        else if (a[0] != '-')                          text   = a;
+        if      (a == "-h" || a == "--help")                        { print_help_tts(); return 0; }
+        else if (a == "--kokoro")                                    engine = "kokoro";
+        else if (a == "--vits")                                      engine = "vits";
+        else if (a == "--engine"                     && i+1 < argc)  engine = argv[++i];
+        else if ((a == "-v" || a == "--voice" ||
+                  a == "--kokoro-voice")             && i+1 < argc)  voice  = argv[++i];
+        else if (a == "--speed"                      && i+1 < argc)  speed  = std::stof(argv[++i]);
+        else if (a == "-o"                           && i+1 < argc)  output = argv[++i];
+        else if (a[0] != '-')                                        text   = a;
     }
 
     if (text.empty()) {
@@ -568,7 +586,14 @@ int main(int argc, char** argv) {
         if (a == "tts" || a == "serve") { subcmd_idx = i; break; }
     }
 
-    // Pass 1: find --config and load it (establishes defaults)
+    // Pass 0: auto-load config.json from the executable's directory (silent if absent)
+    {
+        auto auto_cfg = exe_dir(argv[0]) + "/config.json";
+        if (std::filesystem::exists(auto_cfg))
+            g_cfg = load_config(auto_cfg, false);
+    }
+
+    // Pass 1: find --config and load it (overrides auto-loaded values)
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--config" && i + 1 < argc) {
             g_cfg = load_config(argv[i + 1]);
