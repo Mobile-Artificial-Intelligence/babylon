@@ -213,6 +213,13 @@ static std::string tmp_wav_path() {
     return buf;
 }
 
+// Strip a known suffix from a string if present.
+static std::string strip_suffix(const std::string& s, const std::string& suffix) {
+    if (s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix)
+        return s.substr(0, s.size() - suffix.size());
+    return s;
+}
+
 static std::vector<std::string> list_voice_names(const std::string& dir) {
     std::vector<std::string> voices;
     if (dir.empty()) return voices;
@@ -227,13 +234,12 @@ static std::vector<std::string> list_voice_names(const std::string& dir) {
 
 static std::string resolve_voice(const std::string& voice, const std::string& voices_dir) {
     if (voice.empty()) return voice;
-    // If it already looks like a path, use it directly
+    // Absolute / relative path — use directly
     if (voice.find('/') != std::string::npos || voice.find('\\') != std::string::npos)
         return voice;
-    // If it has a .bin extension and no directory part, prefix with voices_dir
-    if (!voices_dir.empty())
-        return voices_dir + "/" + voice + (voice.size() >= 4 && voice.substr(voice.size()-4) == ".bin" ? "" : ".bin");
-    return voice;
+    if (voices_dir.empty()) return voice;
+    std::string base = strip_suffix(voice, ".bin");
+    return voices_dir + "/" + base + ".bin";
 }
 
 // ─── Global state ─────────────────────────────────────────────────────────────

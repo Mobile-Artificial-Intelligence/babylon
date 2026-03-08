@@ -1,10 +1,10 @@
 {
-  "phonemizer_model": "models/open-phonemizer.onnx",
-  "dictionary":       "models/dictionary.json",
-  "kokoro_model":     "models/kokoro.onnx",
-  "kokoro_voice":     "heart",
-  "kokoro_voices":    "models/voices",
-  "vits_model":       "models/vits.onnx",
+  "phonemizer_model": "../models/open-phonemizer.onnx",
+  "dictionary":       "../models/dictionary.json",
+  "kokoro_model":     "../models/kokoro-quantized.onnx",
+  "kokoro_voice":     "en-US-heart",
+  "kokoro_voices":    "../models/voices",
+  "vits_model":       "../models/curie.onnx",
   "host":             "127.0.0.1",
   "port":             8775
 }
