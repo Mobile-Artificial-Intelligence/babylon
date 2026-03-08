@@ -284,7 +284,7 @@ static const std::unordered_map<std::string, int> KOKORO_VOCAB = {
 };
 
 static const std::array<const char*, 3> INPUT_NAMES  = {"input_ids", "style", "speed"};
-static const std::array<const char*, 1> OUTPUT_NAMES = {"output"};
+static const std::array<const char*, 1> OUTPUT_NAMES = {"waveform"};
 
 std::vector<int64_t> encode_phonemes(const std::string& phonemes) {
     std::vector<std::string> chars = utf8_chars(phonemes);

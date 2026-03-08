@@ -206,7 +206,7 @@ static bool is_punct_token(const std::string& tok) {
 namespace OpenPhonemizer {
 
 static const std::array<const char*, 1> INPUT_NAMES  = {"text"};
-static const std::array<const char*, 1> OUTPUT_NAMES = {"output"};
+static const std::array<const char*, 1> OUTPUT_NAMES = {"logits"};
 
 std::vector<int64_t> encode_word(const std::string& word) {
     // Lowercase and replace spaces with '_'
