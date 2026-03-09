@@ -48,3 +48,5 @@ download
 *.fls
 *.fdb_latexmk
 *.toc
+*.latexmkrc
+*.xdv
