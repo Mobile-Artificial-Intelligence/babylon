@@ -150,13 +150,16 @@ if(WIN32)
         DEPENDS "${BABYLON_BIN_DIR}/onnxruntime.dll"
     )
 elseif(APPLE)
+    # Copy all libonnxruntime*.dylib files preserving symlinks (-P).
+    # ORT installs both a versioned file (libonnxruntime.1.23.0.dylib) and an
+    # unversioned symlink (libonnxruntime.dylib). The versioned name is what is
+    # embedded as the install name in the dylib and referenced by dependent
+    # binaries, so both must be present in bin/.
     add_custom_command(
         OUTPUT  "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${ONNXRUNTIME_LIB}"
-                "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
+        COMMAND bash -c "cp -Pf '${ONNXRUNTIME_INSTALL_DIR}/lib/'libonnxruntime*.dylib '${BABYLON_BIN_DIR}/'"
         DEPENDS onnxruntime_build
-        COMMENT "Copying libonnxruntime.dylib to bin/"
+        COMMENT "Copying libonnxruntime dylibs to bin/"
     )
     add_custom_target(copy_onnxruntime ALL
         DEPENDS "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
