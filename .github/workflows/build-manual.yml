@@ -30,6 +30,7 @@ jobs:
         with:
           root_file: manual.tex
           working_directory: docs
+          latexmk_use_xelatex: true
 
       - name: Upload manual PDF
         uses: actions/upload-artifact@v4

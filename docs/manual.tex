@@ -1,7 +1,7 @@
 \documentclass[12pt,a4paper]{article}
 \usepackage[colorlinks=true, allcolors=black]{hyperref}
 \usepackage[margin=2cm]{geometry}
-\usepackage[utf8]{inputenc}
+\usepackage{fontspec}
 \usepackage{graphicx}
 \usepackage{caption}
 \usepackage{xcolor}
@@ -221,6 +221,8 @@ The following options apply to all subcommands and are processed before dispatch
 \end{center}
 
 On startup, \texttt{babylon} automatically looks for a \texttt{config.json} in the same directory as the executable and loads it silently. A \texttt{--config} flag overrides this, and individual flags override specific keys.
+
+\newpage
 
 \subsection{Config File Format}
 
