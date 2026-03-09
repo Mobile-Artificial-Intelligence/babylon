@@ -4,7 +4,7 @@
   "kokoro_model":     "models/kokoro-quantized.onnx",
   "kokoro_voice":     "en-US-heart",
   "kokoro_voices":    "models/voices",
-  "vits_model":       "models/curie.onnx",
+  "vits_model":       "models/en-US-curie-vits.onnx",
   "host":             "127.0.0.1",
   "port":             8775
 }
