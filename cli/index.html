@@ -227,17 +227,6 @@
 <script>
   const $ = id => document.getElementById(id);
 
-  // ── Health check ──────────────────────────────────────────────────────────
-  async function checkHealth() {
-    try {
-      const r = await fetch('/health');
-      $('health-dot').className = r.ok ? 'dot' : 'dot err';
-    } catch {
-      $('health-dot').className = 'dot err';
-    }
-  }
-  checkHealth();
-
   // ── Voice list ────────────────────────────────────────────────────────────
   async function loadVoices() {
     try {
@@ -258,7 +247,29 @@
       setStatus('Could not load voices: ' + e.message, true);
     }
   }
+
+  // ── Status ────────────────────────────────────────────────────────────────
+  async function loadStatus() {
+    try {
+      const r = await fetch('/status');
+      const s = await r.json();
+      $('health-dot').className = (s.kokoro || s.vits) ? 'dot' : 'dot err';
+
+      for (const opt of $('engine').options) {
+        if (opt.value === 'kokoro') opt.disabled = !s.kokoro;
+        if (opt.value === 'vits')   opt.disabled = !s.vits;
+      }
+      for (const opt of $('engine').options) {
+        if (!opt.disabled) { $('engine').value = opt.value; break; }
+      }
+      onEngineChange();
+    } catch {
+      $('health-dot').className = 'dot err';
+    }
+  }
+
   loadVoices();
+  loadStatus();
 
   // ── Engine change ─────────────────────────────────────────────────────────
   function onEngineChange() {

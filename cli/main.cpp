@@ -154,7 +154,7 @@ static void print_help_serve() {
         "  -h, --help      Show this help\n"
         "\n"
         "Endpoints:\n"
-        "  GET  /health       Returns {\"status\":\"ok\"}\n"
+        "  GET  /status       Returns status and available models/voices\n"
         "  GET  /voices       Lists available Kokoro voices\n"
         "  POST /phonemize    Convert text to IPA phonemes\n"
         "  POST /tts          Synthesise speech, returns audio/wav\n"
@@ -442,9 +442,20 @@ static void send_response(sock_t s, const HttpResponse& res) {
 
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
-static HttpResponse route_health() {
+static HttpResponse route_status() {
     HttpResponse res;
-    res.text_body("{\"status\":\"ok\"}");
+    bool phonemizer = !g_cfg.phonemizer_model.empty() &&
+                      std::filesystem::exists(g_cfg.phonemizer_model);
+    bool kokoro     = !g_cfg.kokoro_model.empty() &&
+                      std::filesystem::exists(g_cfg.kokoro_model);
+    bool vits       = !g_cfg.vits_model.empty() &&
+                      std::filesystem::exists(g_cfg.vits_model);
+    json j;
+    j["phonemizer"] = phonemizer;
+    j["kokoro"]     = kokoro;
+    j["vits"]       = vits;
+    j["voices"]     = list_voice_names(g_cfg.kokoro_voices).size();
+    res.text_body(j.dump());
     return res;
 }
 
@@ -589,7 +600,7 @@ static HttpResponse route_index() {
 
 static HttpResponse dispatch(const HttpRequest& req) {
     if (req.method == "GET"  && (req.path == "/" || req.path == "/index.html")) return route_index();
-    if (req.method == "GET"  && req.path == "/health")     return route_health();
+    if (req.method == "GET"  && req.path == "/status")     return route_status();
     if (req.method == "GET"  && req.path == "/voices")     return route_voices();
     if (req.method == "POST" && req.path == "/phonemize")  return route_phonemize(req.body);
     if (req.method == "POST" && req.path == "/tts")        return route_tts(req.body);
