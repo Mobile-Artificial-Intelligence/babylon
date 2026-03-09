@@ -91,8 +91,9 @@ static void print_help_global() {
         "Usage: babylon <command> [options]\n"
         "\n"
         "Commands:\n"
-        "  tts     Convert text to speech and write a WAV file\n"
-        "  serve   Start a REST API server\n"
+        "  phonemize  Convert text to IPA phonemes\n"
+        "  tts        Convert text to speech and write a WAV file\n"
+        "  serve      Start a REST API server\n"
         "\n"
         "Global options:\n"
         "  --config <path>          Load settings from a JSON config file\n"
@@ -153,17 +154,35 @@ static void print_help_serve() {
         "  -h, --help      Show this help\n"
         "\n"
         "Endpoints:\n"
-        "  GET  /health    Returns {\"status\":\"ok\"}\n"
-        "  GET  /voices    Lists available Kokoro voices (requires --kokoro-voices)\n"
-        "  POST /tts       Synthesise speech, returns audio/wav\n"
+        "  GET  /health       Returns {\"status\":\"ok\"}\n"
+        "  GET  /voices       Lists available Kokoro voices\n"
+        "  POST /phonemize    Convert text to IPA phonemes\n"
+        "  POST /tts          Synthesise speech, returns audio/wav\n"
+        "\n"
+        "POST /phonemize body (JSON):\n"
+        "  {\n"
+        "    \"text\":    \"Hello world\",  (required)\n"
+        "    \"tokens\":  false           (optional, return token IDs instead of IPA)\n"
+        "  }\n"
         "\n"
         "POST /tts body (JSON):\n"
         "  {\n"
-        "    \"text\":   \"Hello world\",       (required)\n"
-        "    \"engine\": \"kokoro\",            (optional, default: kokoro)\n"
-        "    \"voice\":  \"heart\",             (optional, name or path)\n"
-        "    \"speed\":  1.0                  (optional, default: 1.0)\n"
+        "    \"text\":   \"Hello world\",  (required)\n"
+        "    \"engine\": \"kokoro\",       (optional, default: kokoro)\n"
+        "    \"voice\":  \"en-US-heart\",  (optional)\n"
+        "    \"speed\":  1.0             (optional, default: 1.0)\n"
         "  }\n";
+}
+
+static void print_help_phonemize() {
+    std::cout <<
+        "Usage: babylon phonemize [options] \"<text>\"\n"
+        "\n"
+        "Convert text to IPA phonemes using the phonemizer model.\n"
+        "\n"
+        "Options:\n"
+        "  --tokens        Print Kokoro token IDs instead of IPA string\n"
+        "  -h, --help      Show this help\n";
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -254,6 +273,44 @@ static bool init_vits() {
     }
     g_vits_ready = true;
     return true;
+}
+
+// ─── Phonemize command ────────────────────────────────────────────────────────
+
+static int cmd_phonemize(int argc, char** argv) {
+    bool tokens = false;
+    std::string text;
+
+    for (int i = 0; i < argc; ++i) {
+        std::string a = argv[i];
+        if      (a == "-h" || a == "--help") { print_help_phonemize(); return 0; }
+        else if (a == "--tokens")             tokens = true;
+        else if (a[0] != '-')                text   = a;
+    }
+
+    if (text.empty()) {
+        std::cerr << "Error: no text provided.\n\n";
+        print_help_phonemize();
+        return 1;
+    }
+
+    if (!init_g2p()) return 1;
+
+    if (tokens) {
+        int* ids = babylon_g2p_tokens(text.c_str());
+        if (!ids) { std::cerr << "Error: phonemization failed.\n"; return 1; }
+        for (int i = 0; ids[i] != -1; ++i)
+            std::cout << (i ? " " : "") << ids[i];
+        std::cout << "\n";
+        free(ids);
+    } else {
+        char* phonemes = babylon_g2p(text.c_str());
+        if (!phonemes) { std::cerr << "Error: phonemization failed.\n"; return 1; }
+        std::cout << phonemes << "\n";
+        free(phonemes);
+    }
+
+    return 0;
 }
 
 // ─── TTS command ──────────────────────────────────────────────────────────────
@@ -397,6 +454,59 @@ static HttpResponse route_voices() {
     return res;
 }
 
+static HttpResponse route_phonemize(const std::string& body) {
+    HttpResponse res;
+
+    std::string text;
+    bool tokens = false;
+    try {
+        json j = json::parse(body);
+        text   = j.value("text",   "");
+        tokens = j.value("tokens", false);
+    } catch (...) {
+        res.status = 400;
+        res.text_body("{\"error\":\"invalid JSON body\"}");
+        return res;
+    }
+
+    if (text.empty()) {
+        res.status = 400;
+        res.text_body("{\"error\":\"'text' is required\"}");
+        return res;
+    }
+
+    if (!init_g2p()) {
+        res.status = 500;
+        res.text_body("{\"error\":\"G2P not initialized\"}");
+        return res;
+    }
+
+    if (tokens) {
+        int* ids = babylon_g2p_tokens(text.c_str());
+        if (!ids) {
+            res.status = 500;
+            res.text_body("{\"error\":\"phonemization failed\"}");
+            return res;
+        }
+        json arr = json::array();
+        for (int i = 0; ids[i] != -1; ++i) arr.push_back(ids[i]);
+        free(ids);
+        res.text_body(json{{"tokens", arr}}.dump());
+    } else {
+        char* phonemes = babylon_g2p(text.c_str());
+        if (!phonemes) {
+            res.status = 500;
+            res.text_body("{\"error\":\"phonemization failed\"}");
+            return res;
+        }
+        std::string result(phonemes);
+        free(phonemes);
+        res.text_body(json{{"phonemes", result}}.dump());
+    }
+
+    return res;
+}
+
 static HttpResponse route_tts(const std::string& body) {
     HttpResponse res;
 
@@ -462,9 +572,10 @@ static HttpResponse route_tts(const std::string& body) {
 }
 
 static HttpResponse dispatch(const HttpRequest& req) {
-    if (req.method == "GET"  && req.path == "/health") return route_health();
-    if (req.method == "GET"  && req.path == "/voices")  return route_voices();
-    if (req.method == "POST" && req.path == "/tts")     return route_tts(req.body);
+    if (req.method == "GET"  && req.path == "/health")     return route_health();
+    if (req.method == "GET"  && req.path == "/voices")     return route_voices();
+    if (req.method == "POST" && req.path == "/phonemize")  return route_phonemize(req.body);
+    if (req.method == "POST" && req.path == "/tts")        return route_tts(req.body);
 
     // OPTIONS preflight (CORS)
     if (req.method == "OPTIONS") {
@@ -560,7 +671,7 @@ int main(int argc, char** argv) {
     int subcmd_idx = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "tts" || a == "serve") { subcmd_idx = i; break; }
+        if (a == "phonemize" || a == "tts" || a == "serve") { subcmd_idx = i; break; }
     }
 
     // Pass 0: auto-load config.json from the executable's directory (silent if absent)
@@ -601,8 +712,9 @@ int main(int argc, char** argv) {
     int  sub_argc = argc - subcmd_idx - 1;
     char** sub_argv = argv + subcmd_idx + 1;
 
-    if (subcmd == "tts")   return cmd_tts(sub_argc, sub_argv);
-    if (subcmd == "serve") return cmd_serve(sub_argc, sub_argv);
+    if (subcmd == "phonemize") return cmd_phonemize(sub_argc, sub_argv);
+    if (subcmd == "tts")       return cmd_tts(sub_argc, sub_argv);
+    if (subcmd == "serve")     return cmd_serve(sub_argc, sub_argv);
 
     return 0;
 }
