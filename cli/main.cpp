@@ -231,10 +231,11 @@ static std::string resolve_voice(const std::string& voice, const std::string& vo
 
 // ─── Global state ─────────────────────────────────────────────────────────────
 
-static Config g_cfg;
-static bool   g_g2p_ready    = false;
-static bool   g_kokoro_ready = false;
-static bool   g_vits_ready   = false;
+static Config      g_cfg;
+static std::string g_exe_dir;
+static bool        g_g2p_ready    = false;
+static bool        g_kokoro_ready = false;
+static bool        g_vits_ready   = false;
 
 static bool init_g2p() {
     if (g_g2p_ready) return true;
@@ -571,7 +572,23 @@ static HttpResponse route_tts(const std::string& body) {
     return res;
 }
 
+static HttpResponse route_index() {
+    HttpResponse res;
+    std::string path = g_exe_dir + "/index.html";
+    std::ifstream f(path);
+    if (!f) {
+        res.status = 404;
+        res.text_body("{\"error\":\"index.html not found\"}");
+        return res;
+    }
+    std::string html((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    res.content_type = "text/html; charset=utf-8";
+    res.text_body(html);
+    return res;
+}
+
 static HttpResponse dispatch(const HttpRequest& req) {
+    if (req.method == "GET"  && (req.path == "/" || req.path == "/index.html")) return route_index();
     if (req.method == "GET"  && req.path == "/health")     return route_health();
     if (req.method == "GET"  && req.path == "/voices")     return route_voices();
     if (req.method == "POST" && req.path == "/phonemize")  return route_phonemize(req.body);
@@ -665,6 +682,7 @@ static int cmd_serve(int argc, char** argv) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
+    g_exe_dir = exe_dir(argv[0]);
     if (argc < 2) { print_help_global(); return 0; }
 
     // Find subcommand index

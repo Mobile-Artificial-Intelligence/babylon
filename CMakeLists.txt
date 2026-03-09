@@ -203,6 +203,14 @@ add_custom_target(copy_config ALL
     COMMENT "Copying config.json to bin/"
 )
 
+# Copy cli/index.html into bin/ at every build
+add_custom_target(copy_index ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/cli/index.html"
+            "${BABYLON_BIN_DIR}/index.html"
+    COMMENT "Copying index.html to bin/"
+)
+
 # Declare an imported target backed by the installed library
 add_library(onnxruntime SHARED IMPORTED)
 add_dependencies(onnxruntime onnxruntime_build)
