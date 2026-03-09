@@ -39,3 +39,12 @@ build
 lib
 bin
 download
+
+*.pdf
+*.synctex.gz
+*.log
+*.out
+*.aux
+*.fls
+*.fdb_latexmk
+*.toc

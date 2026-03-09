@@ -1,0 +1,658 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[colorlinks=true, allcolors=black]{hyperref}
+\usepackage[margin=2cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{enumitem}
+
+\definecolor{codebg}{rgb}{0.95,0.95,0.95}
+\definecolor{keywordcolor}{rgb}{0.0,0.4,0.8}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray},
+    keywordstyle=\color{keywordcolor}\bfseries,
+}
+
+\setlength{\fboxsep}{0pt}
+
+\begin{document}
+\begin{titlepage}
+    \centering
+    \rule{\textwidth}{1pt}\par
+    \vspace*{1.2cm}
+    {\Huge\textbf{Babylon.cpp Manual}}\\
+    \vspace*{1cm}
+    \rule{\textwidth}{1pt}\par
+    \vspace*{\fill}
+    \includegraphics[width=0.4\textwidth]{./logo.png}\\
+    \vspace*{\fill}
+    \rule{\textwidth}{1pt}\par
+    \vspace*{1cm}
+    \makebox[\textwidth]{
+        \large v0.0.2\hfill \today
+    }
+\end{titlepage}
+
+% Table of contents
+\tableofcontents
+
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+
+Babylon.cpp is a free and open-source C and C++ library for grapheme-to-phoneme (G2P) conversion and neural text-to-speech (TTS) synthesis. All inference runs locally using \href{https://github.com/microsoft/onnxruntime}{ONNX Runtime} — no internet connection is required and no text or audio data leaves the host machine.
+
+The library exposes three layers of interface:
+
+\begin{itemize}[noitemsep]
+    \item A \textbf{C API} suitable for use from any language with a C foreign-function interface.
+    \item A \textbf{C++ API} providing higher-level session classes.
+    \item A \textbf{command-line tool} (\texttt{babylon}) for phonemization, speech synthesis, and serving a REST API.
+\end{itemize}
+
+\subsection{Supported Platforms}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Platform} & \textbf{Architecture} & \textbf{Library} \\
+\midrule
+Linux   & x86\_64                     & \texttt{libbabylon.so} \\
+macOS   & Universal (x86\_64 + arm64) & \texttt{libbabylon.dylib} \\
+Windows & x86\_64                     & \texttt{babylon.dll} \\
+Android & arm64-v8a, x86\_64          & \texttt{libbabylon.so} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{How It Works}
+
+\subsection{Phonemization}
+
+The G2P pipeline converts raw text to IPA phonemes through three stages:
+
+\begin{enumerate}
+    \item \textbf{Text normalisation} — Numbers are expanded to words, ordinals are resolved, abbreviations are handled, and punctuation is classified so the phonemizer receives clean prose.
+    \item \textbf{Dictionary lookup} — Each word is looked up in a bundled pronunciation dictionary (\textasciitilde130\,000 English entries). If found, the dictionary phonemes are used directly, avoiding a model call.
+    \item \textbf{Neural G2P} — Words not found in the dictionary are phonemized by \href{https://github.com/NeuralVox/OpenPhonemizer}{Open Phonemizer}, an ONNX model that predicts IPA output character-by-character using CTC decoding.
+\end{enumerate}
+
+\subsection{TTS Engines}
+
+Babylon.cpp supports two neural TTS backends.
+
+\subsubsection{Kokoro}
+
+\href{https://github.com/hexgrad/kokoro}{Kokoro} is the recommended engine. It produces high-quality, multi-voice speech at 24\,kHz mono. Each voice is represented by a 256-dimensional style embedding stored in a \texttt{.bin} file, indexed by the token count of the input sequence.
+
+The Kokoro synthesis pipeline:
+
+\begin{enumerate}
+    \item Phonemize the input text to an IPA string.
+    \item Encode the IPA string to Kokoro token IDs using a built-in 178-entry vocab.
+    \item Load the voice style embedding for the current token count from the \texttt{.bin} file.
+    \item Run the Kokoro ONNX model with \texttt{input\_ids}, \texttt{style}, and \texttt{speed} inputs to produce a PCM waveform.
+    \item Write the waveform as a 24\,kHz WAV file.
+\end{enumerate}
+
+\subsubsection{VITS}
+
+\href{https://github.com/jaywalnut310/vits}{VITS} is an end-to-end neural TTS model. \href{https://github.com/rhasspy/piper}{Piper}-compatible VITS models are supported. The sample rate is determined by metadata embedded in the model file.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Building from Source}
+\label{sec:building}
+
+\subsection{Prerequisites}
+
+\begin{itemize}[noitemsep]
+    \item CMake 3.18 or later
+    \item A C++17 compiler (GCC, Clang, or MSVC)
+    \item Git (for submodule checkout)
+    \item \textbf{macOS only}: Xcode Command Line Tools
+    \item \textbf{Windows only}: Visual Studio 2019 or later with the C++ workload
+\end{itemize}
+
+\subsection{Cloning}
+
+\begin{lstlisting}[language=bash]
+git clone --recursive \
+  https://github.com/Mobile-Artificial-Intelligence/babylon.cpp.git
+cd babylon.cpp
+\end{lstlisting}
+
+\subsection{Build Targets}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Target} & \textbf{Description} \\
+\midrule
+\texttt{make lib}     & Build \texttt{libbabylon} only \\
+\texttt{make cli}     & Build the library, CLI binary, and copy runtime files to \texttt{bin/} \\
+\texttt{make debug}   & CLI build in Debug mode \\
+\texttt{make android} & Cross-compile the library for Android (requires NDK) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All build output is placed in \texttt{bin/}. The \texttt{cli} target also copies \texttt{data/config.json}, \texttt{data/index.html}, \texttt{data/dictionary.json}, and the \texttt{models/} directory into \texttt{bin/}.
+
+\subsection{Android}
+
+Android builds require the Android NDK (r27 or later). Set \texttt{ANDROID\_NDK\_HOME} before running \texttt{make android}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Models}
+\label{sec:models}
+
+The library requires external model files that are not bundled in the repository. Place them in the \texttt{models/} directory, or configure their paths in \texttt{data/config.json}.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{File} & \textbf{Description} & \textbf{Config Key} \\
+\midrule
+\texttt{open-phonemizer.onnx}  & Open Phonemizer G2P model & \texttt{phonemizer\_model} \\
+\texttt{dictionary.json}       & Pronunciation dictionary  & \texttt{dictionary} \\
+\texttt{kokoro-quantized.onnx} & Kokoro TTS model          & \texttt{kokoro\_model} \\
+\texttt{voices/*.bin}          & Kokoro voice style files  & \texttt{kokoro\_voices} \\
+\texttt{curie.onnx}            & VITS TTS model            & \texttt{vits\_model} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Kokoro Voices}
+
+Each voice is a \texttt{.bin} file of float32 values. The filename without extension is used as the voice name. The default voice is \texttt{en-US-heart}.
+
+Voice names follow the convention \texttt{<lang>-<name>}:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Language} & \textbf{Example Voice Names} \\
+\midrule
+English (US) & \texttt{en-US-heart}, \texttt{en-US-bella}, \texttt{en-US-nova}, \texttt{en-US-adam}, \ldots \\
+English (GB) & \texttt{en-GB-alice}, \texttt{en-GB-emma}, \texttt{en-GB-daniel}, \ldots \\
+German       & \texttt{de-DE-dora}, \texttt{de-DE-alex} \\
+French       & \texttt{fr-FR-siwis} \\
+Japanese     & \texttt{ja-JP-alpha-f}, \texttt{ja-JP-kumo}, \ldots \\
+Chinese (Simplified) & \texttt{zh-CN-xiaobei}, \texttt{zh-CN-yunxi}, \ldots \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{CLI}
+\label{sec:cli}
+
+The \texttt{babylon} binary provides three subcommands: \texttt{phonemize}, \texttt{tts}, and \texttt{serve}.
+
+\subsection{Global Options}
+
+The following options apply to all subcommands and are processed before dispatch:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Option} & \textbf{Argument} & \textbf{Description} \\
+\midrule
+\texttt{--config}           & \texttt{<path>} & Load a JSON config file \\
+\texttt{--phonemizer-model} & \texttt{<path>} & Phonemizer ONNX model \\
+\texttt{--dictionary}       & \texttt{<path>} & Pronunciation dictionary JSON \\
+\texttt{--kokoro-model}     & \texttt{<path>} & Kokoro ONNX model \\
+\texttt{--kokoro-voice}     & \texttt{<name>} & Default Kokoro voice name \\
+\texttt{--kokoro-voices}    & \texttt{<dir>}  & Directory of voice \texttt{.bin} files \\
+\texttt{--vits-model}       & \texttt{<path>} & VITS ONNX model \\
+\texttt{-h}, \texttt{--help} &                & Show help \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+On startup, \texttt{babylon} automatically looks for a \texttt{config.json} in the same directory as the executable and loads it silently. A \texttt{--config} flag overrides this, and individual flags override specific keys.
+
+\subsection{Config File Format}
+
+\begin{lstlisting}[language={}]
+{
+  "phonemizer_model": "models/open-phonemizer.onnx",
+  "dictionary":       "models/dictionary.json",
+  "kokoro_model":     "models/kokoro-quantized.onnx",
+  "kokoro_voice":     "en-US-heart",
+  "kokoro_voices":    "models/voices",
+  "vits_model":       "models/curie.onnx",
+  "host":             "127.0.0.1",
+  "port":             8775
+}
+\end{lstlisting}
+
+\subsection{phonemize}
+
+Convert text to IPA phonemes.
+
+\begin{lstlisting}[language=bash]
+babylon phonemize "Hello world"
+babylon phonemize --tokens "Hello world"
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Option} & \textbf{Description} \\
+\midrule
+\texttt{--tokens} & Print Kokoro token IDs instead of the IPA string \\
+\texttt{-h}, \texttt{--help} & Show help \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{tts}
+
+Synthesise speech and write a WAV file.
+
+\begin{lstlisting}[language=bash]
+babylon tts "Hello world"
+babylon tts "Hello world" -o hello.wav
+babylon tts --voice en-US-nova --speed 1.2 "Hello world"
+babylon tts --vits "Hello world" -o hello.wav
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Option} & \textbf{Argument} & \textbf{Description} \\
+\midrule
+\texttt{--kokoro}  &                  & Use the Kokoro engine (default) \\
+\texttt{--vits}    &                  & Use the VITS engine \\
+\texttt{--engine}  & \texttt{<name>}  & Select \texttt{kokoro} or \texttt{vits} explicitly \\
+\texttt{-v}, \texttt{--voice}, \texttt{--kokoro-voice} & \texttt{<name>} & Kokoro voice name \\
+\texttt{--speed}   & \texttt{<float>} & Speech speed multiplier (default: \texttt{1.0}) \\
+\texttt{-o}        & \texttt{<path>}  & Output WAV file (default: \texttt{output.wav}) \\
+\texttt{-h}, \texttt{--help} &        & Show help \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Voice names are filenames in the \texttt{kokoro\_voices} directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{models/voices/en-US-heart.bin}.
+
+\subsection{serve}
+
+Start a local REST API server with the web frontend.
+
+\begin{lstlisting}[language=bash]
+babylon serve
+babylon serve --host 0.0.0.0 --port 9000
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Option} & \textbf{Argument} & \textbf{Description} \\
+\midrule
+\texttt{--host} & \texttt{<addr>} & Bind address (default: \texttt{127.0.0.1}) \\
+\texttt{--port} & \texttt{<port>} & Port number (default: \texttt{8775}) \\
+\texttt{-h}, \texttt{--help} & & Show help \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+On startup, all configured models are pre-loaded. The web frontend is served at \texttt{GET /} from \texttt{index.html} in the same directory as the executable.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{REST API}
+\label{sec:rest}
+
+When running \texttt{babylon serve}, the following HTTP endpoints are available. All responses include \texttt{Access-Control-Allow-Origin: *}.
+
+\subsection{GET /status}
+
+Returns the availability of each engine and the number of loaded voices.
+
+\textbf{Response} (\texttt{application/json}):
+
+\begin{lstlisting}[language={}]
+{
+  "phonemizer": true,
+  "kokoro":     true,
+  "vits":       false,
+  "voices":     54
+}
+\end{lstlisting}
+
+\texttt{phonemizer}, \texttt{kokoro}, and \texttt{vits} are booleans indicating whether the model file exists at the configured path. \texttt{voices} is the count of \texttt{.bin} files in the voices directory.
+
+\subsection{GET /voices}
+
+Returns a sorted JSON array of available Kokoro voice names.
+
+\textbf{Response} (\texttt{application/json}):
+
+\begin{lstlisting}[language={}]
+["en-GB-alice", "en-US-bella", "en-US-heart", ...]
+\end{lstlisting}
+
+\subsection{POST /phonemize}
+
+Convert text to IPA phonemes or Kokoro token IDs.
+
+\textbf{Request body} (\texttt{application/json}):
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Required} & \textbf{Description} \\
+\midrule
+\texttt{text}   & string  & Yes & Input text to phonemize \\
+\texttt{tokens} & boolean & No  & Return token IDs instead of IPA (default: \texttt{false}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Response} — IPA mode:
+
+\begin{lstlisting}[language={}]
+{ "phonemes": "hɛloʊ wɜːld" }
+\end{lstlisting}
+
+\textbf{Response} — token mode:
+
+\begin{lstlisting}[language={}]
+{ "tokens": [31, 29, 42, 0, 51, 17, 32, 42] }
+\end{lstlisting}
+
+\subsection{POST /tts}
+
+Synthesise speech. Returns a WAV audio file on success.
+
+\textbf{Request body} (\texttt{application/json}):
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Required} & \textbf{Description} \\
+\midrule
+\texttt{text}   & string & Yes & Input text \\
+\texttt{engine} & string & No  & \texttt{"kokoro"} (default) or \texttt{"vits"} \\
+\texttt{voice}  & string & No  & Voice name; defaults to the config value \\
+\texttt{speed}  & number & No  & Speech speed multiplier (default: \texttt{1.0}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Success response}: \texttt{audio/wav} binary body.
+
+\textbf{Error response} (\texttt{application/json}):
+
+\begin{lstlisting}[language={}]
+{ "error": "description of the error" }
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{C API}
+\label{sec:c-api}
+
+Include \texttt{babylon.h} and link against \texttt{libbabylon}.
+
+\subsection{G2P (Phonemization)}
+
+\subsubsection{babylon\_g2p\_init}
+
+\begin{lstlisting}[language=c]
+int babylon_g2p_init(const char* model_path,
+                     babylon_g2p_options_t options);
+\end{lstlisting}
+
+Loads the Open Phonemizer ONNX model. Returns \texttt{0} on success, non-zero on failure.
+
+\textbf{Options struct:}
+
+\begin{lstlisting}[language=c]
+typedef struct {
+  const char*         dictionary_path; // path to dictionary.json, or NULL
+  const unsigned char use_punctuation; // 1 to preserve punctuation, 0 to strip
+} babylon_g2p_options_t;
+\end{lstlisting}
+
+\subsubsection{babylon\_g2p}
+
+\begin{lstlisting}[language=c]
+char* babylon_g2p(const char* text);
+\end{lstlisting}
+
+Phonemizes \texttt{text} and returns a heap-allocated IPA string. The caller must call \texttt{free()} on the result.
+
+\subsubsection{babylon\_g2p\_tokens}
+
+\begin{lstlisting}[language=c]
+int* babylon_g2p_tokens(const char* text);
+\end{lstlisting}
+
+Phonemizes \texttt{text} and returns a heap-allocated, \texttt{-1}-terminated array of Kokoro-compatible token IDs. The caller must call \texttt{free()} on the result.
+
+\subsubsection{babylon\_g2p\_free}
+
+\begin{lstlisting}[language=c]
+void babylon_g2p_free(void);
+\end{lstlisting}
+
+Releases the G2P session and frees all associated memory.
+
+\subsection{VITS TTS}
+
+\subsubsection{babylon\_tts\_init}
+
+\begin{lstlisting}[language=c]
+int babylon_tts_init(const char* model_path);
+\end{lstlisting}
+
+Loads a VITS ONNX model. The G2P session must already be initialised. Returns \texttt{0} on success.
+
+\subsubsection{babylon\_tts}
+
+\begin{lstlisting}[language=c]
+void babylon_tts(const char* text, const char* output_path);
+\end{lstlisting}
+
+Synthesises \texttt{text} and writes a WAV file to \texttt{output\_path}.
+
+\subsubsection{babylon\_tts\_free}
+
+\begin{lstlisting}[language=c]
+void babylon_tts_free(void);
+\end{lstlisting}
+
+Releases the VITS session.
+
+\subsection{Kokoro TTS}
+
+\subsubsection{babylon\_kokoro\_init}
+
+\begin{lstlisting}[language=c]
+int babylon_kokoro_init(const char* model_path);
+\end{lstlisting}
+
+Loads the Kokoro ONNX model. The G2P session must already be initialised. Returns \texttt{0} on success.
+
+\subsubsection{babylon\_kokoro\_tts}
+
+\begin{lstlisting}[language=c]
+void babylon_kokoro_tts(const char* text,
+                        const char* voice_path,
+                        float       speed,
+                        const char* output_path);
+\end{lstlisting}
+
+Synthesises \texttt{text} using the voice style loaded from \texttt{voice\_path} at the given \texttt{speed}, writing a WAV file to \texttt{output\_path}.
+
+\subsubsection{babylon\_kokoro\_free}
+
+\begin{lstlisting}[language=c]
+void babylon_kokoro_free(void);
+\end{lstlisting}
+
+Releases the Kokoro session.
+
+\subsection{C API Example}
+
+\begin{lstlisting}[language=c]
+#include "babylon.h"
+#include <stdlib.h>
+
+int main(void) {
+    babylon_g2p_options_t opts = {
+        .dictionary_path = "models/dictionary.json",
+        .use_punctuation = 1,
+    };
+
+    if (babylon_g2p_init("models/open-phonemizer.onnx", opts) != 0)
+        return 1;
+
+    if (babylon_kokoro_init("models/kokoro-quantized.onnx") != 0)
+        return 1;
+
+    babylon_kokoro_tts(
+        "Hello world",
+        "models/voices/en-US-heart.bin",
+        1.0f,
+        "output.wav"
+    );
+
+    babylon_kokoro_free();
+    babylon_g2p_free();
+    return 0;
+}
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{C++ API}
+\label{sec:cpp-api}
+
+Include \texttt{babylon.h} and link against \texttt{libbabylon}. All classes are in their respective namespaces.
+
+\subsection{OpenPhonemizer::Session}
+
+\begin{lstlisting}[language=c++]
+namespace OpenPhonemizer {
+  class Session {
+  public:
+    Session(const std::string& model_path,
+            const std::string& dictionary_path = "",
+            bool use_punctuation = false);
+
+    // Returns concatenated IPA phoneme string for full text
+    std::string phonemize(const std::string& text);
+
+    // Returns Kokoro-compatible token IDs
+    std::vector<int64_t> phonemize_tokens(const std::string& text);
+  };
+}
+\end{lstlisting}
+
+\subsection{Kokoro::Session}
+
+\begin{lstlisting}[language=c++]
+namespace Kokoro {
+  class Session {
+  public:
+    Session(const std::string& model_path);
+
+    void tts(const std::string& phonemes,
+             const std::string& voice_path,
+             float speed,
+             const std::string& output_path);
+  };
+}
+\end{lstlisting}
+
+\subsection{Vits::Session}
+
+\begin{lstlisting}[language=c++]
+namespace Vits {
+  class Session {
+  public:
+    Session(const std::string& model_path);
+
+    void tts(const std::vector<std::string>& phonemes,
+             const std::string& output_path);
+  };
+}
+\end{lstlisting}
+
+\subsection{C++ API Example}
+
+\begin{lstlisting}[language=c++]
+#include "babylon.h"
+
+int main() {
+    OpenPhonemizer::Session phonemizer(
+        "models/open-phonemizer.onnx",
+        "models/dictionary.json",
+        /* use_punctuation = */ true
+    );
+
+    Kokoro::Session kokoro("models/kokoro-quantized.onnx");
+
+    std::string phonemes = phonemizer.phonemize("Hello world");
+
+    kokoro.tts(phonemes,
+               "models/voices/en-US-heart.bin",
+               /* speed = */ 1.0f,
+               "output.wav");
+
+    return 0;
+}
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Python Wrapper}
+\label{sec:python}
+
+A pre-built Python package is available as a CI artifact. It bundles the compiled libraries for Linux, macOS, and Windows alongside the Python wrapper module (\texttt{babylon.py}).
+
+\begin{lstlisting}[language=python]
+import babylon
+
+babylon.g2p_init("models/open-phonemizer.onnx",
+                 "models/dictionary.json")
+babylon.kokoro_init("models/kokoro-quantized.onnx")
+
+babylon.kokoro_tts(
+    "Hello world",
+    "models/voices/en-US-heart.bin",
+    speed=1.0,
+    output_path="output.wav"
+)
+
+babylon.kokoro_free()
+babylon.g2p_free()
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Web Frontend}
+
+When running \texttt{babylon serve}, a single-page web interface is served at \texttt{http://\textless{}host\textgreater{}:\textless{}port\textgreater{}/}. It requires no additional dependencies and communicates entirely with the local REST API.
+
+Features:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Status indicator} — A dot in the header reflects engine availability from \texttt{GET /status}. Cyan indicates at least one engine is ready; red indicates no models are configured.
+    \item \textbf{Engine selector} — Switches between Kokoro and VITS. Options are disabled if the corresponding model is not available.
+    \item \textbf{Voice selector} — Populated from \texttt{GET /voices}; disabled when VITS is selected.
+    \item \textbf{Speed slider} — Controls Kokoro speech speed from 0.5$\times$ to 2.0$\times$.
+    \item \textbf{Phonemize} — Sends \texttt{POST /phonemize} and displays the IPA result.
+    \item \textbf{Speak} — Sends \texttt{POST /tts} and plays the returned WAV audio directly in the browser.
+    \item \textbf{Keyboard shortcut} — \texttt{Ctrl+Enter} / \texttt{Cmd+Enter} triggers speech synthesis.
+\end{itemize}
+
+\end{document}
