@@ -8,7 +8,7 @@ project(
     LANGUAGES CXX
 )
 
-set(BABYLON_LIB_INSTALL_DIR ${CMAKE_CURRENT_LIST_DIR}/lib CACHE PATH "Babylon library install directory")
+set(BABYLON_BIN_DIR ${CMAKE_CURRENT_LIST_DIR}/bin CACHE PATH "Babylon output directory")
 
 # Enable C++17 standard
 set(CMAKE_CXX_STANDARD 17)
@@ -39,14 +39,14 @@ if(NOT APPLE)
     target_compile_options(babylon PRIVATE "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=babylon")
 endif()
 
-# Set the output directory for the shared library
+# Output the shared library alongside the CLI binary in bin/
 set_target_properties(
     babylon
     PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${BABYLON_LIB_INSTALL_DIR}
+    LIBRARY_OUTPUT_DIRECTORY ${BABYLON_BIN_DIR}
 )
 
-# if linux or windows
+# On Linux/non-Apple: look for sibling shared libs in the same directory
 if(NOT APPLE AND NOT ANDROID)
     set_target_properties(
         babylon
@@ -136,44 +136,69 @@ else()
     set(ONNXRUNTIME_LIB "${ONNXRUNTIME_INSTALL_DIR}/lib/libonnxruntime.so")
 endif()
 
-# Copy the built shared library into lib/ after onnxruntime is built
+# Copy the onnxruntime shared library into bin/ after it is built
 if(WIN32)
     add_custom_command(
-        OUTPUT  "${BABYLON_LIB_INSTALL_DIR}/onnxruntime.dll"
+        OUTPUT  "${BABYLON_BIN_DIR}/onnxruntime.dll"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_RUNTIME}"
-                "${BABYLON_LIB_INSTALL_DIR}/onnxruntime.dll"
+                "${BABYLON_BIN_DIR}/onnxruntime.dll"
         DEPENDS onnxruntime_build
-        COMMENT "Copying onnxruntime.dll to lib/"
+        COMMENT "Copying onnxruntime.dll to bin/"
     )
     add_custom_target(copy_onnxruntime ALL
-        DEPENDS "${BABYLON_LIB_INSTALL_DIR}/onnxruntime.dll"
+        DEPENDS "${BABYLON_BIN_DIR}/onnxruntime.dll"
     )
 elseif(APPLE)
     add_custom_command(
-        OUTPUT  "${BABYLON_LIB_INSTALL_DIR}/libonnxruntime.dylib"
+        OUTPUT  "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_LIB}"
-                "${BABYLON_LIB_INSTALL_DIR}/libonnxruntime.dylib"
+                "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
         DEPENDS onnxruntime_build
-        COMMENT "Copying libonnxruntime.dylib to lib/"
+        COMMENT "Copying libonnxruntime.dylib to bin/"
     )
     add_custom_target(copy_onnxruntime ALL
-        DEPENDS "${BABYLON_LIB_INSTALL_DIR}/libonnxruntime.dylib"
+        DEPENDS "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
     )
 else()
     add_custom_command(
-        OUTPUT  "${BABYLON_LIB_INSTALL_DIR}/libonnxruntime.so"
+        OUTPUT  "${BABYLON_BIN_DIR}/libonnxruntime.so"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_LIB}"
-                "${BABYLON_LIB_INSTALL_DIR}/libonnxruntime.so"
+                "${BABYLON_BIN_DIR}/libonnxruntime.so"
         DEPENDS onnxruntime_build
-        COMMENT "Copying libonnxruntime.so to lib/"
+        COMMENT "Copying libonnxruntime.so to bin/"
     )
     add_custom_target(copy_onnxruntime ALL
-        DEPENDS "${BABYLON_LIB_INSTALL_DIR}/libonnxruntime.so"
+        DEPENDS "${BABYLON_BIN_DIR}/libonnxruntime.so"
     )
 endif()
+
+# Copy models/ into bin/models/ — uses a stamp so large files are only copied once.
+# Delete bin/.models_stamp to force a re-copy.
+# Skipped silently if the models/ directory doesn't exist (e.g. in CI).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
+    add_custom_command(
+        OUTPUT  "${BABYLON_BIN_DIR}/.models_stamp"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/models"
+                "${BABYLON_BIN_DIR}/models"
+        COMMAND ${CMAKE_COMMAND} -E touch "${BABYLON_BIN_DIR}/.models_stamp"
+        COMMENT "Copying models/ to bin/models/"
+    )
+    add_custom_target(copy_models ALL
+        DEPENDS "${BABYLON_BIN_DIR}/.models_stamp"
+    )
+endif()
+
+# Copy cli/config.json into bin/ at every build (small file, always up to date)
+add_custom_target(copy_config ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/cli/config.json"
+            "${BABYLON_BIN_DIR}/config.json"
+    COMMENT "Copying config.json to bin/"
+)
 
 # Declare an imported target backed by the installed library
 add_library(onnxruntime SHARED IMPORTED)
@@ -201,7 +226,7 @@ add_dependencies(babylon onnxruntime_build copy_onnxruntime)
 
 target_link_directories(
     babylon PUBLIC
-    ${BABYLON_LIB_INSTALL_DIR}
+    ${BABYLON_BIN_DIR}
 )
 
 if(WIN32)
@@ -223,14 +248,7 @@ else()
     )
 endif()
 
-# Include example directory if EXAMPLES flag is set
-option(BUILD_EXAMPLES "Build examples" OFF)
-
-if(BUILD_EXAMPLES)
-    add_subdirectory(example)
-endif()
-
-# Include CLI
+# CLI
 option(BUILD_CLI "Build babylon CLI" OFF)
 
 if(BUILD_CLI)

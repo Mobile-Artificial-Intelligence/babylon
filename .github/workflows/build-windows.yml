@@ -9,7 +9,7 @@ on:
       - '.github/workflows/build-windows.yml'
       - 'src/**'
       - 'include/**'
-      - 'example/**'
+      - 'cli/**'
       - 'CMakeLists.txt'
 
 jobs:
@@ -26,18 +26,15 @@ jobs:
         run: choco install -y cmake
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CLI=ON
 
       - name: Build
         run: cmake --build build --config Release -- /m:4
-
-      - name: Copy Everything from \build\Release\ to \lib
-        run: xcopy /E /Y build\Release\ lib\
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64
           path: |
-            lib/
+            bin/
             include/

@@ -8,10 +8,10 @@ set_target_properties(babylon_cli PROPERTIES OUTPUT_NAME babylon)
 
 target_link_libraries(babylon_cli babylon)
 
-# On non-Apple Unix, embed the rpath so the binary finds libbabylon next to it
+# On non-Apple Unix, embed the rpath so the binary finds sibling libs in bin/
 if(NOT APPLE AND NOT WIN32)
     set_target_properties(babylon_cli PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "$ORIGIN/../lib"
+        INSTALL_RPATH "$ORIGIN"
     )
 endif()

@@ -9,7 +9,6 @@ on:
       - '.github/workflows/build-android.yml'
       - 'src/**'
       - 'include/**'
-      - 'example/**'
       - 'CMakeLists.txt'
 
 jobs:
@@ -18,7 +17,7 @@ jobs:
     strategy:
       matrix:
         abi: [arm64-v8a, x86_64]
-  
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -26,7 +25,7 @@ jobs:
           submodules: recursive
 
       - name: Install CMake
-        run: | 
+        run: |
           sudo apt-get update |
           sudo apt-get install -y cmake
           echo "CMake Version: $(cmake --version)"
@@ -57,5 +56,5 @@ jobs:
         with:
           name: android-${{ matrix.abi }}
           path: |
-            lib/
+            bin/
             include/

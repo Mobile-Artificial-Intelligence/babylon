@@ -9,7 +9,7 @@ on:
       - '.github/workflows/build-macos.yml'
       - 'src/**'
       - 'include/**'
-      - 'example/**'
+      - 'cli/**'
       - 'CMakeLists.txt'
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
         run: echo "CPU_CORES=$(sysctl -n hw.ncpu)" >> $GITHUB_ENV
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CLI=ON
 
       - name: Build
         run: cmake --build build --config Release -- -j${{ env.CPU_CORES }}
@@ -40,5 +40,5 @@ jobs:
         with:
           name: macos-arm64
           path: |
-            lib/
+            bin/
             include/
