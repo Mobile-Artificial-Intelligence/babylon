@@ -9,7 +9,8 @@ on:
       - '.github/workflows/build-macos.yml'
       - 'src/**'
       - 'include/**'
-      - 'cli/**'
+      - 'src/cli/**'
+      - 'data/**'
       - 'CMakeLists.txt'
 
 jobs:

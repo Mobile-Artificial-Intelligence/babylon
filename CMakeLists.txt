@@ -28,10 +28,10 @@ endif()
 add_library(
     babylon
     SHARED
-    src/babylon.cpp
-    src/cleaners.cpp
-    src/phonemizer.cpp
-    src/voice.cpp
+    src/lib/babylon.cpp
+    src/lib/cleaners.cpp
+    src/lib/phonemizer.cpp
+    src/lib/voice.cpp
 )
 
 if(NOT APPLE)
@@ -195,18 +195,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
     )
 endif()
 
-# Copy cli/config.json into bin/ at every build (small file, always up to date)
+# Copy data/dictionary.json into bin/models/ (alongside the other model files)
+add_custom_target(copy_dictionary ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_BIN_DIR}/models"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/dictionary.json"
+            "${BABYLON_BIN_DIR}/models/dictionary.json"
+    COMMENT "Copying dictionary.json to bin/models/"
+)
+
+# Copy data/config.json into bin/ at every build (small file, always up to date)
 add_custom_target(copy_config ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/cli/config.json"
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/config.json"
             "${BABYLON_BIN_DIR}/config.json"
     COMMENT "Copying config.json to bin/"
 )
 
-# Copy cli/index.html into bin/ at every build
+# Copy data/index.html into bin/ at every build
 add_custom_target(copy_index ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/cli/index.html"
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/index.html"
             "${BABYLON_BIN_DIR}/index.html"
     COMMENT "Copying index.html to bin/"
 )
@@ -263,5 +272,5 @@ endif()
 option(BUILD_CLI "Build babylon CLI" OFF)
 
 if(BUILD_CLI)
-    add_subdirectory(cli)
+    add_subdirectory(src/cli)
 endif()

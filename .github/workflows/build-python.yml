@@ -9,7 +9,8 @@ on:
       - 'wrappers/**'
       - 'src/**'
       - 'include/**'
-      - 'cli/**'
+      - 'src/cli/**'
+      - 'data/**'
       - 'CMakeLists.txt'
 
 jobs:

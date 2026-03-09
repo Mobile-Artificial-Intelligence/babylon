@@ -9,7 +9,8 @@ on:
       - '.github/workflows/build-windows.yml'
       - 'src/**'
       - 'include/**'
-      - 'cli/**'
+      - 'src/cli/**'
+      - 'data/**'
       - 'CMakeLists.txt'
 
 jobs:
