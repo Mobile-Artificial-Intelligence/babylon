@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 
 project(
     babylon
-    VERSION 0.0.2
+    VERSION 1.0.0
     DESCRIPTION "Babylon Neural Text To Speech Engine"
     HOMEPAGE_URL "https://github.com/danemadsen/babylon.cpp"
     LANGUAGES CXX
