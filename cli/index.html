@@ -9,8 +9,8 @@
 
   body {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0d0d12;
-    color: #ddd8f0;
+    background: #05080f;
+    color: #c8d8e8;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -30,22 +30,22 @@
   header h1 {
     font-size: 1.4rem;
     font-weight: 700;
-    color: #c4b5fd;
+    color: #00d4d4;
     letter-spacing: -0.03em;
   }
 
   .dot {
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: #4ade80;
-    box-shadow: 0 0 6px #4ade80;
+    background: #00d4d4;
+    box-shadow: 0 0 6px #00d4d4;
     flex-shrink: 0;
   }
   .dot.err { background: #f87171; box-shadow: 0 0 6px #f87171; }
 
   .card {
-    background: #13131e;
-    border: 1px solid #252535;
+    background: #0a0f1a;
+    border: 1px solid #1a2540;
     border-radius: 14px;
     padding: 1.75rem;
     width: 100%;
@@ -59,7 +59,7 @@
     display: block;
     font-size: 0.7rem;
     font-weight: 600;
-    color: #6b6b90;
+    color: #4a6080;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     margin-bottom: 0.35rem;
@@ -68,11 +68,11 @@
   textarea {
     width: 100%;
     height: 130px;
-    background: #0d0d12;
-    border: 1px solid #252535;
+    background: #05080f;
+    border: 1px solid #1a2540;
     border-radius: 9px;
     padding: 0.8rem;
-    color: #ddd8f0;
+    color: #c8d8e8;
     font-size: 1rem;
     line-height: 1.5;
     resize: vertical;
@@ -80,7 +80,7 @@
     font-family: inherit;
     transition: border-color 0.15s;
   }
-  textarea:focus { border-color: #7c3aed; }
+  textarea:focus { border-color: #00d4d4; }
 
   .row {
     display: grid;
@@ -91,30 +91,30 @@
   .field { display: flex; flex-direction: column; }
 
   select {
-    background: #0d0d12;
-    border: 1px solid #252535;
+    background: #05080f;
+    border: 1px solid #1a2540;
     border-radius: 9px;
     padding: 0.55rem 0.75rem;
-    color: #ddd8f0;
+    color: #c8d8e8;
     font-size: 0.9rem;
     outline: none;
     width: 100%;
     cursor: pointer;
     transition: border-color 0.15s;
   }
-  select:focus { border-color: #7c3aed; }
+  select:focus { border-color: #00d4d4; }
   select:disabled { opacity: 0.35; cursor: not-allowed; }
 
   .speed-row { display: flex; align-items: center; gap: 0.75rem; }
   input[type=range] {
     flex: 1;
-    accent-color: #7c3aed;
+    accent-color: #00d4d4;
     cursor: pointer;
   }
   .speed-val {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #a78bfa;
+    color: #00d4d4;
     min-width: 3rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -135,22 +135,22 @@
   }
   button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .btn-speak   { background: #7c3aed; color: #fff; }
-  .btn-speak:not(:disabled):hover   { background: #6d28d9; }
-  .btn-phoneme { background: #1e1e30; color: #ddd8f0; border: 1px solid #252535; }
-  .btn-phoneme:not(:disabled):hover { background: #272738; }
+  .btn-speak   { background: #006e8a; color: #fff; }
+  .btn-speak:not(:disabled):hover   { background: #00566d; }
+  .btn-phoneme { background: #0a0f1a; color: #c8d8e8; border: 1px solid #1a2540; }
+  .btn-phoneme:not(:disabled):hover { background: #0f1828; }
 
   .status {
     font-size: 0.8rem;
-    color: #6b6b90;
+    color: #4a6080;
     min-height: 1.1rem;
     transition: color 0.15s;
   }
   .status.error { color: #f87171; }
 
   .output {
-    background: #0d0d12;
-    border: 1px solid #252535;
+    background: #05080f;
+    border: 1px solid #1a2540;
     border-radius: 9px;
     padding: 1rem;
     display: none;
@@ -162,7 +162,7 @@
   .phoneme-text {
     font-family: "SF Mono", "Fira Code", "Consolas", monospace;
     font-size: 1.05rem;
-    color: #c4b5fd;
+    color: #00d4d4;
     line-height: 1.6;
     word-break: break-all;
   }
