@@ -1,3 +1,6 @@
 [submodule "submodules/onnxruntime"]
 	path = submodules/onnxruntime
 	url = https://github.com/Mobile-Artificial-Intelligence/onnxruntime.git
+[submodule "submodules/json"]
+	path = submodules/json
+	url = https://github.com/nlohmann/json.git

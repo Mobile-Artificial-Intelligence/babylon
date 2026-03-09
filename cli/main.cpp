@@ -1,4 +1,5 @@
 #include "babylon.h"
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -12,6 +13,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+using json = nlohmann::json;
 
 #ifdef _WIN32
   #ifndef WIN32_LEAN_AND_MEAN
@@ -49,42 +52,6 @@ struct Config {
     int port = 8775;
 };
 
-// Minimal flat-JSON string extractor (handles "key": "value" and "key": number)
-static std::string json_str(const std::string& json, const std::string& key) {
-    std::string pat = "\"" + key + "\"";
-    auto pos = json.find(pat);
-    if (pos == std::string::npos) return "";
-    pos = json.find(':', pos + pat.size());
-    if (pos == std::string::npos) return "";
-    pos = json.find('"', pos + 1);
-    if (pos == std::string::npos) return "";
-    auto end = json.find('"', pos + 1);
-    if (end == std::string::npos) return "";
-    return json.substr(pos + 1, end - pos - 1);
-}
-
-static int json_int(const std::string& json, const std::string& key, int def) {
-    std::string pat = "\"" + key + "\"";
-    auto pos = json.find(pat);
-    if (pos == std::string::npos) return def;
-    pos = json.find(':', pos + pat.size());
-    if (pos == std::string::npos) return def;
-    ++pos;
-    while (pos < json.size() && json[pos] == ' ') ++pos;
-    try { return std::stoi(json.substr(pos)); } catch (...) { return def; }
-}
-
-static float json_float(const std::string& json, const std::string& key, float def) {
-    std::string pat = "\"" + key + "\"";
-    auto pos = json.find(pat);
-    if (pos == std::string::npos) return def;
-    pos = json.find(':', pos + pat.size());
-    if (pos == std::string::npos) return def;
-    ++pos;
-    while (pos < json.size() && json[pos] == ' ') ++pos;
-    try { return std::stof(json.substr(pos)); } catch (...) { return def; }
-}
-
 // Returns the directory that contains the running executable (from argv[0]).
 // Falls back to "." if argv[0] has no directory component.
 static std::string exe_dir(const char* argv0) {
@@ -101,18 +68,19 @@ static Config load_config(const std::string& path, bool warn_if_missing = true) 
             std::cerr << "Warning: cannot open config: " << path << "\n";
         return cfg;
     }
-    std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-
-    auto s = [&](const std::string& k) { return json_str(json, k); };
-    if (!s("phonemizer_model").empty())       cfg.phonemizer_model       = s("phonemizer_model");
-    if (!s("dictionary").empty())     cfg.dictionary     = s("dictionary");
-    if (!s("kokoro_model").empty())   cfg.kokoro_model   = s("kokoro_model");
-    if (!s("kokoro_voice").empty())   cfg.kokoro_voice   = s("kokoro_voice");
-    if (!s("kokoro_voices").empty())  cfg.kokoro_voices  = s("kokoro_voices");
-    if (!s("vits_model").empty())     cfg.vits_model     = s("vits_model");
-    if (!s("host").empty())           cfg.host           = s("host");
-    int p = json_int(json, "port", 0);
-    if (p > 0) cfg.port = p;
+    try {
+        json j = json::parse(f);
+        if (j.contains("phonemizer_model")) cfg.phonemizer_model = j["phonemizer_model"];
+        if (j.contains("dictionary"))       cfg.dictionary       = j["dictionary"];
+        if (j.contains("kokoro_model"))     cfg.kokoro_model     = j["kokoro_model"];
+        if (j.contains("kokoro_voice"))     cfg.kokoro_voice     = j["kokoro_voice"];
+        if (j.contains("kokoro_voices"))    cfg.kokoro_voices    = j["kokoro_voices"];
+        if (j.contains("vits_model"))       cfg.vits_model       = j["vits_model"];
+        if (j.contains("host"))             cfg.host             = j["host"];
+        if (j.contains("port"))             cfg.port             = j["port"];
+    } catch (const json::exception& e) {
+        std::cerr << "Warning: failed to parse config " << path << ": " << e.what() << "\n";
+    }
     return cfg;
 }
 
@@ -424,24 +392,27 @@ static HttpResponse route_health() {
 
 static HttpResponse route_voices() {
     HttpResponse res;
-    auto names = list_voice_names(g_cfg.kokoro_voices);
-    std::string json = "[";
-    for (size_t i = 0; i < names.size(); ++i) {
-        json += "\"" + names[i] + "\"";
-        if (i + 1 < names.size()) json += ",";
-    }
-    json += "]";
-    res.text_body(json);
+    json j = list_voice_names(g_cfg.kokoro_voices);
+    res.text_body(j.dump());
     return res;
 }
 
 static HttpResponse route_tts(const std::string& body) {
     HttpResponse res;
 
-    std::string text   = json_str(body, "text");
-    std::string engine = json_str(body, "engine");
-    std::string voice  = json_str(body, "voice");
-    float speed        = json_float(body, "speed", 1.0f);
+    std::string text, engine, voice;
+    float speed = 1.0f;
+    try {
+        json j  = json::parse(body);
+        text    = j.value("text",   "");
+        engine  = j.value("engine", "");
+        voice   = j.value("voice",  "");
+        speed   = j.value("speed",  1.0f);
+    } catch (...) {
+        res.status = 400;
+        res.text_body("{\"error\":\"invalid JSON body\"}");
+        return res;
+    }
 
     if (engine.empty()) engine = "kokoro";
     if (voice.empty())  voice  = g_cfg.kokoro_voice;
