@@ -227,6 +227,15 @@ add_custom_target(copy_index ALL
     COMMENT "Copying index.html to bin/"
 )
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data/visemes")
+    add_custom_target(copy_visemes ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data/visemes"
+                "${BABYLON_BIN_DIR}/visemes"
+        COMMENT "Copying viseme reference images to bin/visemes/"
+    )
+endif()
+
 # Declare an imported target backed by the installed library
 add_library(onnxruntime SHARED IMPORTED)
 add_dependencies(onnxruntime onnxruntime_build)

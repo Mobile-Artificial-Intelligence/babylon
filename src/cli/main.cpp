@@ -2,6 +2,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -205,8 +206,9 @@ static void print_help_serve() {
         "Endpoints:\n"
         "  GET  /status       Returns status and available models/voices\n"
         "  GET  /voices       Lists available Kokoro voices\n"
+        "  GET  /visemes/...  Serves viseme reference images for the web UI\n"
         "  POST /phonemize    Convert text to IPA phonemes\n"
-        "  POST /tts          Synthesise speech, returns audio/wav\n"
+        "  POST /tts          Synthesise speech, returns audio/wav or JSON with timings\n"
         "\n"
         "POST /phonemize body (JSON):\n"
         "  {\n"
@@ -219,7 +221,8 @@ static void print_help_serve() {
         "    \"text\":   \"Hello world\",  (required)\n"
         "    \"engine\": \"kokoro\",       (optional, default: kokoro)\n"
         "    \"voice\":  \"en-US-heart\",  (optional)\n"
-        "    \"speed\":  1.0             (optional, default: 1.0)\n"
+        "    \"speed\":  1.0,            (optional, default: 1.0)\n"
+        "    \"timings\": true           (optional, return JSON with audio_base64 + timings)\n"
         "  }\n";
 }
 
@@ -247,6 +250,44 @@ static std::string tmp_wav_path() {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "babylon_tmp_%lld.wav", (long long)std::time(nullptr));
     return buf;
+}
+
+static std::string base64_encode(const std::vector<uint8_t>& bytes) {
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789+/";
+
+    std::string out;
+    out.reserve(((bytes.size() + 2) / 3) * 4);
+
+    for (size_t i = 0; i < bytes.size(); i += 3) {
+        uint32_t chunk = static_cast<uint32_t>(bytes[i]) << 16;
+        if (i + 1 < bytes.size()) chunk |= static_cast<uint32_t>(bytes[i + 1]) << 8;
+        if (i + 2 < bytes.size()) chunk |= static_cast<uint32_t>(bytes[i + 2]);
+
+        out.push_back(alphabet[(chunk >> 18) & 0x3F]);
+        out.push_back(alphabet[(chunk >> 12) & 0x3F]);
+        out.push_back(i + 1 < bytes.size() ? alphabet[(chunk >> 6) & 0x3F] : '=');
+        out.push_back(i + 2 < bytes.size() ? alphabet[chunk & 0x3F] : '=');
+    }
+
+    return out;
+}
+
+static std::string guess_content_type(const std::filesystem::path& path) {
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+
+    if (ext == ".html") return "text/html; charset=utf-8";
+    if (ext == ".json") return "application/json";
+    if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+    if (ext == ".png") return "image/png";
+    if (ext == ".wav") return "audio/wav";
+    if (ext == ".webm") return "video/webm";
+    return "application/octet-stream";
 }
 
 // Strip a known suffix from a string if present.
@@ -639,12 +680,14 @@ static HttpResponse route_tts(const std::string& body) {
 
     std::string text, engine, voice;
     float speed = 1.0f;
+    bool timings = false;
     try {
         json j  = json::parse(body);
         text    = j.value("text",   "");
         engine  = j.value("engine", "");
         voice   = j.value("voice",  "");
         speed   = j.value("speed",  1.0f);
+        timings = j.value("timings", false);
     } catch (...) {
         res.status = 400;
         res.text_body("{\"error\":\"invalid JSON body\"}");
@@ -661,6 +704,7 @@ static HttpResponse route_tts(const std::string& body) {
     }
 
     std::string out = tmp_wav_path();
+    babylon_timing_result_t* timing_result = nullptr;
 
     if (engine == "vits") {
         if (!init_vits()) {
@@ -668,7 +712,16 @@ static HttpResponse route_tts(const std::string& body) {
             res.text_body("{\"error\":\"VITS engine not available\"}");
             return res;
         }
-        babylon_tts(text.c_str(), out.c_str());
+        if (timings) {
+            timing_result = babylon_tts_with_timings(text.c_str(), out.c_str());
+            if (!timing_result) {
+                res.status = 500;
+                res.text_body("{\"error\":\"VITS synthesis with timings failed\"}");
+                return res;
+            }
+        } else {
+            babylon_tts(text.c_str(), out.c_str());
+        }
     } else {
         if (!init_kokoro()) {
             res.status = 500;
@@ -681,20 +734,78 @@ static HttpResponse route_tts(const std::string& body) {
             res.text_body("{\"error\":\"'voice' is required for Kokoro engine\"}");
             return res;
         }
-        babylon_kokoro_tts(text.c_str(), voice_path.c_str(), speed, out.c_str());
+        if (timings) {
+            timing_result = babylon_kokoro_tts_with_timings(text.c_str(), voice_path.c_str(), speed, out.c_str());
+            if (!timing_result) {
+                res.status = 500;
+                res.text_body("{\"error\":\"Kokoro synthesis with timings failed\"}");
+                return res;
+            }
+        } else {
+            babylon_kokoro_tts(text.c_str(), voice_path.c_str(), speed, out.c_str());
+        }
     }
 
     auto wav = read_file_bytes(out);
     std::remove(out.c_str());
 
     if (wav.empty()) {
+        if (timing_result) babylon_timing_result_free(timing_result);
         res.status = 500;
         res.text_body("{\"error\":\"TTS synthesis failed\"}");
         return res;
     }
 
+    if (timings) {
+        json payload = {
+            {"audio_base64", base64_encode(wav)},
+            {"audio_mime", "audio/wav"},
+            {"timings", timing_result_to_json(timing_result)},
+        };
+        babylon_timing_result_free(timing_result);
+        res.text_body(payload.dump());
+        return res;
+    }
+
     res.content_type = "audio/wav";
     res.body = std::move(wav);
+    return res;
+}
+
+static HttpResponse route_static_asset(const std::string& request_path) {
+    HttpResponse res;
+
+    std::filesystem::path rel = std::filesystem::path(request_path).lexically_normal();
+    if (rel.is_absolute() || rel.empty()) {
+        res.status = 404;
+        res.text_body("{\"error\":\"not found\"}");
+        return res;
+    }
+
+    for (const auto& part : rel) {
+        if (part == "..") {
+            res.status = 404;
+            res.text_body("{\"error\":\"not found\"}");
+            return res;
+        }
+    }
+
+    std::filesystem::path full = (std::filesystem::path(g_exe_dir) / rel).lexically_normal();
+    if (!std::filesystem::exists(full) || !std::filesystem::is_regular_file(full)) {
+        res.status = 404;
+        res.text_body("{\"error\":\"not found\"}");
+        return res;
+    }
+
+    auto bytes = read_file_bytes(full.string());
+    if (bytes.empty()) {
+        res.status = 404;
+        res.text_body("{\"error\":\"not found\"}");
+        return res;
+    }
+
+    res.content_type = guess_content_type(full);
+    res.body = std::move(bytes);
     return res;
 }
 
@@ -717,6 +828,8 @@ static HttpResponse dispatch(const HttpRequest& req) {
     if (req.method == "GET"  && (req.path == "/" || req.path == "/index.html")) return route_index();
     if (req.method == "GET"  && req.path == "/status")     return route_status();
     if (req.method == "GET"  && req.path == "/voices")     return route_voices();
+    if (req.method == "GET"  && req.path.rfind("/visemes/", 0) == 0)
+        return route_static_asset(req.path.substr(1));
     if (req.method == "POST" && req.path == "/phonemize")  return route_phonemize(req.body);
     if (req.method == "POST" && req.path == "/tts")        return route_tts(req.body);
 
