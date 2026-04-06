@@ -22,12 +22,18 @@ using json = nlohmann::json;
   #endif
   #include <winsock2.h>
   #include <ws2tcpip.h>
+  #include <windows.h>
   #pragma comment(lib, "ws2_32.lib")
   typedef SOCKET sock_t;
   #define INVALID_SOCK INVALID_SOCKET
   #define sock_close(s) closesocket(s)
   #define sock_valid(s) ((s) != INVALID_SOCKET)
 #else
+  #ifdef __APPLE__
+    #include <mach-o/dyld.h>
+  #else
+    #include <limits.h>
+  #endif
   #include <arpa/inet.h>
   #include <netdb.h>
   #include <netinet/in.h>
@@ -52,12 +58,52 @@ struct Config {
     int port = 8775;
 };
 
+static std::string resolve_config_path(
+    const std::filesystem::path& config_dir,
+    const std::string& value
+) {
+    if (value.empty()) return value;
+
+    std::filesystem::path path(value);
+    if (path.is_absolute()) return path.lexically_normal().string();
+
+    return (config_dir / path).lexically_normal().string();
+}
+
 // Returns the directory that contains the running executable (from argv[0]).
 // Falls back to "." if argv[0] has no directory component.
 static std::string exe_dir(const char* argv0) {
-    std::filesystem::path p(argv0);
+    std::filesystem::path p;
+
+#ifdef _WIN32
+    std::vector<char> buffer(MAX_PATH);
+    DWORD len = GetModuleFileNameA(nullptr, buffer.data(), (DWORD)buffer.size());
+    if (len > 0 && len < buffer.size()) {
+        p = std::string(buffer.data(), len);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    if (size > 0) {
+        std::vector<char> buffer(size);
+        if (_NSGetExecutablePath(buffer.data(), &size) == 0) {
+            p = buffer.data();
+        }
+    }
+#else
+    char buffer[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (len > 0) {
+        buffer[len] = '\0';
+        p = buffer;
+    }
+#endif
+
+    if (p.empty()) p = argv0;
+    if (p.is_relative()) p = std::filesystem::absolute(p);
+
     auto dir = p.parent_path();
-    return dir.empty() ? "." : dir.string();
+    return dir.empty() ? "." : dir.lexically_normal().string();
 }
 
 static Config load_config(const std::string& path, bool warn_if_missing = true) {
@@ -70,12 +116,14 @@ static Config load_config(const std::string& path, bool warn_if_missing = true) 
     }
     try {
         json j = json::parse(f);
-        if (j.contains("phonemizer_model")) cfg.phonemizer_model = j["phonemizer_model"];
-        if (j.contains("dictionary"))       cfg.dictionary       = j["dictionary"];
-        if (j.contains("kokoro_model"))     cfg.kokoro_model     = j["kokoro_model"];
+        const std::filesystem::path config_dir = std::filesystem::absolute(path).parent_path();
+
+        if (j.contains("phonemizer_model")) cfg.phonemizer_model = resolve_config_path(config_dir, j["phonemizer_model"]);
+        if (j.contains("dictionary"))       cfg.dictionary       = resolve_config_path(config_dir, j["dictionary"]);
+        if (j.contains("kokoro_model"))     cfg.kokoro_model     = resolve_config_path(config_dir, j["kokoro_model"]);
         if (j.contains("kokoro_voice"))     cfg.kokoro_voice     = j["kokoro_voice"];
-        if (j.contains("kokoro_voices"))    cfg.kokoro_voices    = j["kokoro_voices"];
-        if (j.contains("vits_model"))       cfg.vits_model       = j["vits_model"];
+        if (j.contains("kokoro_voices"))    cfg.kokoro_voices    = resolve_config_path(config_dir, j["kokoro_voices"]);
+        if (j.contains("vits_model"))       cfg.vits_model       = resolve_config_path(config_dir, j["vits_model"]);
         if (j.contains("host"))             cfg.host             = j["host"];
         if (j.contains("port"))             cfg.port             = j["port"];
     } catch (const json::exception& e) {
