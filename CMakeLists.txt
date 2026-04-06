@@ -87,13 +87,15 @@ if(APPLE AND CMAKE_OSX_ARCHITECTURES)
 endif()
 
 if(WIN32)
-    # Force dynamic CRT (/MD) to avoid LNK4098 / multiply-defined symbol errors.
-    # CMAKE_MSVC_RUNTIME_LIBRARY alone doesn't propagate to ORT's vendored deps
-    # (e.g. protobuf) unless CMP0091 is NEW, so we set both.
+    # Force the dynamic CRT (/MD) through ORT and its vendored deps.
+    # ORT's protobuf/abseil/ONNX builds use their own MSVC runtime toggles,
+    # so passing only CMAKE_MSVC_RUNTIME_LIBRARY is not enough here.
     list(APPEND ONNXRUNTIME_EXTRA_CMAKE_ARGS
         "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW"
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
-        "-Donnxruntime_MSVC_STATIC_RUNTIME=OFF"
+        "-Dprotobuf_MSVC_STATIC_RUNTIME=OFF"
+        "-DABSL_MSVC_STATIC_RUNTIME=OFF"
+        "-DONNX_USE_MSVC_STATIC_RUNTIME=OFF"
     )
     set(ONNXRUNTIME_BYPRODUCTS
         "${ONNXRUNTIME_INSTALL_DIR}/lib/onnxruntime.lib"
