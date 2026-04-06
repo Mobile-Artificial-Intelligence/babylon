@@ -199,6 +199,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
     add_custom_target(copy_models ALL
         DEPENDS "${BABYLON_BIN_DIR}/.models_stamp"
     )
+
 endif()
 
 # Copy data/dictionary.json into bin/models/ (alongside the other model files)
@@ -246,6 +247,7 @@ target_include_directories(
     babylon
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     "${ONNXRUNTIME_INSTALL_DIR}/include/onnxruntime"
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/submodules/json/single_include
 )
 
 add_dependencies(babylon onnxruntime_build copy_onnxruntime)

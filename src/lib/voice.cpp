@@ -5,9 +5,12 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <cstdint>
+#include <cctype>
 #include <stdexcept>
 
 // ---------------------------------------------------------------------------
@@ -52,6 +55,127 @@ static void write_wav(
     f.write(reinterpret_cast<const char*>(samples), n_samples * sizeof(int16_t));
 }
 
+namespace {
+
+static bool session_has_output(Ort::Session& session, const std::string& output_name) {
+    Ort::AllocatorWithDefaultOptions alloc;
+    size_t output_count = session.GetOutputCount();
+    for (size_t i = 0; i < output_count; ++i) {
+        auto name = session.GetOutputNameAllocated(i, alloc);
+        if (name && output_name == name.get()) return true;
+    }
+    return false;
+}
+
+static std::filesystem::path timing_variant_path(const std::string& model_path) {
+    std::filesystem::path path(model_path);
+    return path.parent_path() / (path.stem().string() + ".timing" + path.extension().string());
+}
+
+static Ort::Session* load_session_with_optional_timing(
+    Ort::Env& env,
+    const Ort::SessionOptions& opts,
+    const std::string& model_path,
+    bool& timing_available
+) {
+    Ort::Session* primary = new Ort::Session(env, (const ORTCHAR_T*)model_path.c_str(), opts);
+    if (session_has_output(*primary, "duration")) {
+        timing_available = true;
+        return primary;
+    }
+
+    std::filesystem::path timing_path = timing_variant_path(model_path);
+    if (timing_path != model_path && std::filesystem::exists(timing_path)) {
+        Ort::Session* patched = new Ort::Session(env, (const ORTCHAR_T*)timing_path.string().c_str(), opts);
+        if (session_has_output(*patched, "duration")) {
+            delete primary;
+            timing_available = true;
+            return patched;
+        }
+        delete patched;
+    }
+
+    timing_available = false;
+    return primary;
+}
+
+static std::vector<int64_t> extract_duration_units(const Ort::Value& tensor) {
+    auto info = tensor.GetTensorTypeAndShapeInfo();
+    size_t count = info.GetElementCount();
+    ONNXTensorElementDataType type = info.GetElementType();
+
+    std::vector<int64_t> values(count);
+    if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+        const int64_t* data = tensor.GetTensorData<int64_t>();
+        std::copy(data, data + count, values.begin());
+        return values;
+    }
+    if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+        const float* data = tensor.GetTensorData<float>();
+        for (size_t i = 0; i < count; ++i) values[i] = static_cast<int64_t>(std::llround(data[i]));
+        return values;
+    }
+
+    throw std::runtime_error("Unsupported duration tensor type.");
+}
+
+static Babylon::TimingTrace build_timing_trace(
+    int sample_rate,
+    int64_t samples_per_unit,
+    const std::vector<std::string>& labels,
+    const std::vector<Babylon::TimingKind>& kinds,
+    const std::vector<int64_t>& duration_units
+) {
+    if (labels.size() != duration_units.size() || labels.size() != kinds.size()) {
+        throw std::runtime_error("Timing labels and duration tensors do not align.");
+    }
+
+    Babylon::TimingTrace trace{};
+    trace.sample_rate = sample_rate;
+    trace.samples_per_unit = samples_per_unit;
+    trace.audio_samples = 0;
+
+    int64_t cursor = 0;
+    for (size_t i = 0; i < labels.size(); ++i) {
+        int64_t duration_samples = duration_units[i] * samples_per_unit;
+        Babylon::TimingItem item{};
+        item.token = labels[i];
+        item.kind = kinds[i];
+        item.start_sample = cursor;
+        item.end_sample = cursor + duration_samples;
+        item.duration_samples = duration_samples;
+        item.duration_units = duration_units[i];
+        item.start_seconds = static_cast<double>(item.start_sample) / sample_rate;
+        item.end_seconds = static_cast<double>(item.end_sample) / sample_rate;
+        item.duration_seconds = static_cast<double>(item.duration_samples) / sample_rate;
+        trace.items.push_back(item);
+        cursor = item.end_sample;
+    }
+
+    trace.audio_samples = cursor;
+    return trace;
+}
+
+static bool is_ascii_punctuation(const std::string& token) {
+    return token.size() == 1 && std::ispunct(static_cast<unsigned char>(token[0])) != 0;
+}
+
+static Babylon::TimingKind classify_visible_token(const std::string& token) {
+    if (token == " ") return Babylon::TimingKind::Space;
+    if (
+        is_ascii_punctuation(token) ||
+        token == "\xE2\x80\x94" ||
+        token == "\xE2\x80\xA6" ||
+        token == "\xE2\x80\x9C" ||
+        token == "\xE2\x80\x9D"
+    ) {
+        return Babylon::TimingKind::Punctuation;
+    }
+    return Babylon::TimingKind::Phoneme;
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // VITS namespace
 // ---------------------------------------------------------------------------
@@ -59,10 +183,117 @@ static void write_wav(
 namespace Vits {
 
 static const std::array<const char*, 3> INPUT_NAMES  = {"input", "input_lengths", "scales"};
-static const std::array<const char*, 1> OUTPUT_NAMES = {"output"};
+static const int64_t SAMPLES_PER_UNIT = 256;
 
 static const float FMIN = static_cast<float>(std::numeric_limits<int16_t>::min());
 static const float FMAX = static_cast<float>(std::numeric_limits<int16_t>::max());
+
+struct InferenceResult {
+    std::vector<float> audio;
+    std::vector<int64_t> duration_units;
+};
+
+static std::vector<std::string> build_labels(
+    const SequenceTokenizer& tokenizer,
+    const std::vector<std::string>& phonemes
+) {
+    std::vector<std::string> labels = {"<bos>", "<blank>"};
+    for (const auto& phoneme : phonemes) {
+        if (!tokenizer.has_token(phoneme)) continue;
+        labels.push_back(phoneme);
+        labels.push_back("<blank>");
+    }
+    labels.push_back("<eos>");
+    return labels;
+}
+
+static std::vector<Babylon::TimingKind> build_kinds(const std::vector<std::string>& labels) {
+    std::vector<Babylon::TimingKind> kinds;
+    kinds.reserve(labels.size());
+    for (const auto& label : labels) {
+        if (label == "<bos>" || label == "<eos>") {
+            kinds.push_back(Babylon::TimingKind::Special);
+        } else if (label == "<blank>") {
+            kinds.push_back(Babylon::TimingKind::Blank);
+        } else {
+            kinds.push_back(classify_visible_token(label));
+        }
+    }
+    return kinds;
+}
+
+static InferenceResult run_inference(
+    Ort::Session& session,
+    bool timing_available,
+    SequenceTokenizer& tokenizer,
+    const std::vector<float>& scales,
+    const std::vector<std::string>& phonemes
+) {
+    Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+
+    std::vector<int64_t> ids = tokenizer(phonemes);
+    std::vector<int64_t> shape = {1, (int64_t)ids.size()};
+    std::vector<Ort::Value> inputs;
+
+    inputs.push_back(Ort::Value::CreateTensor<int64_t>(
+        mem_info, ids.data(), ids.size(), shape.data(), shape.size()
+    ));
+
+    std::vector<int64_t> len_val = {(int64_t)ids.size()};
+    std::vector<int64_t> len_shape = {1};
+    inputs.push_back(Ort::Value::CreateTensor<int64_t>(
+        mem_info, len_val.data(), len_val.size(), len_shape.data(), len_shape.size()
+    ));
+
+    std::vector<int64_t> scales_shape = {(int64_t)scales.size()};
+    inputs.push_back(Ort::Value::CreateTensor<float>(
+        mem_info, const_cast<float*>(scales.data()), scales.size(), scales_shape.data(), scales_shape.size()
+    ));
+
+    std::vector<const char*> output_names = {"output"};
+    if (timing_available) output_names.push_back("duration");
+
+    auto outputs = session.Run(
+        Ort::RunOptions{nullptr},
+        INPUT_NAMES.data(), inputs.data(), INPUT_NAMES.size(),
+        output_names.data(), output_names.size()
+    );
+
+    if (outputs.empty()) throw std::runtime_error("[VITS] No output tensor.");
+
+    const float* out = outputs.front().GetTensorData<float>();
+    size_t sample_count = outputs.front().GetTensorTypeAndShapeInfo().GetElementCount();
+
+    InferenceResult result;
+    result.audio.assign(out, out + sample_count);
+    if (timing_available && outputs.size() > 1) {
+        result.duration_units = extract_duration_units(outputs[1]);
+    }
+
+    return result;
+}
+
+static void write_audio(const std::vector<float>& audio, int sample_rate, const std::string& output_path) {
+    int64_t n = static_cast<int64_t>(audio.size());
+
+    // Normalize to int16 range
+    float peak = 0.01f;
+    for (int64_t i = 0; i < n; ++i) {
+        float v = std::abs(audio[i]);
+        if (v > peak) peak = v;
+    }
+    float scale = 32767.0f / peak;
+
+    std::vector<int16_t> pcm(n);
+    for (int64_t i = 0; i < n; ++i) {
+        float v = audio[i] * scale;
+        if (v < FMIN) v = FMIN;
+        if (v > FMAX) v = FMAX;
+        pcm[i] = (int16_t)v;
+    }
+
+    write_wav(output_path, pcm.data(), pcm.size(), (uint32_t)sample_rate);
+}
 
 SequenceTokenizer::SequenceTokenizer(
     const std::vector<std::string>& phonemes,
@@ -91,8 +322,13 @@ std::vector<int64_t> SequenceTokenizer::operator()(const std::vector<std::string
     return ids;
 }
 
+bool SequenceTokenizer::has_token(const std::string& phoneme) const {
+    return token_to_idx.find(phoneme) != token_to_idx.end();
+}
+
 Session::Session(const std::string& model_path)
-    : env(ORT_LOGGING_LEVEL_WARNING, "VITS"), session(nullptr), phoneme_tokenizer(nullptr)
+    : sample_rate(0), timing_available(false),
+      env(ORT_LOGGING_LEVEL_WARNING, "VITS"), session(nullptr), phoneme_tokenizer(nullptr)
 {
     env.DisableTelemetryEvents();
 
@@ -100,12 +336,11 @@ Session::Session(const std::string& model_path)
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     opts.DisableMemPattern();
 
-    session = new Ort::Session(env, (const ORTCHAR_T*)model_path.c_str(), opts);
+    session = load_session_with_optional_timing(env, opts, model_path, timing_available);
 
     Ort::ModelMetadata meta = session->GetModelMetadata();
     Ort::AllocatorWithDefaultOptions alloc;
 
-    // Load phonemes
     std::string phoneme_str = meta.LookupCustomMetadataMapAllocated("phonemes", alloc).get();
     std::vector<std::string> phonemes;
     std::istringstream phoneme_ss(phoneme_str);
@@ -114,7 +349,6 @@ Session::Session(const std::string& model_path)
         phonemes.push_back(buf == "<space>" ? " " : buf);
     }
 
-    // Load phoneme IDs
     std::string id_str = meta.LookupCustomMetadataMapAllocated("phoneme_ids", alloc).get();
     std::vector<int> phoneme_ids;
     std::istringstream id_ss(id_str);
@@ -136,57 +370,51 @@ Session::~Session() {
 }
 
 void Session::tts(const std::vector<std::string>& phonemes, const std::string& output_path) {
-    Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    InferenceResult result = run_inference(*session, timing_available, *phoneme_tokenizer, scales, phonemes);
+    write_audio(result.audio, sample_rate, output_path);
+}
 
-    std::vector<int64_t> ids   = phoneme_tokenizer->operator()(phonemes);
-    std::vector<int64_t> shape = {1, (int64_t)ids.size()};
+Babylon::TimingTrace Session::tts_with_timings(
+    const std::vector<std::string>& phonemes,
+    const std::string& output_path
+) {
+    if (!timing_available) {
+        throw std::runtime_error(
+            "[VITS] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
+        );
+    }
 
-    std::vector<Ort::Value> inputs;
+    InferenceResult result = run_inference(*session, timing_available, *phoneme_tokenizer, scales, phonemes);
+    write_audio(result.audio, sample_rate, output_path);
 
-    inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-        mem_info, ids.data(), ids.size(), shape.data(), shape.size()
-    ));
-
-    std::vector<int64_t> len_val   = {(int64_t)ids.size()};
-    std::vector<int64_t> len_shape = {1};
-    inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-        mem_info, len_val.data(), len_val.size(), len_shape.data(), len_shape.size()
-    ));
-
-    std::vector<int64_t> scales_shape = {(int64_t)scales.size()};
-    inputs.push_back(Ort::Value::CreateTensor<float>(
-        mem_info, scales.data(), scales.size(), scales_shape.data(), scales_shape.size()
-    ));
-
-    auto outputs = session->Run(
-        Ort::RunOptions{nullptr},
-        INPUT_NAMES.data(), inputs.data(), INPUT_NAMES.size(),
-        OUTPUT_NAMES.data(), OUTPUT_NAMES.size()
+    std::vector<std::string> labels = build_labels(*phoneme_tokenizer, phonemes);
+    std::vector<Babylon::TimingKind> kinds = build_kinds(labels);
+    Babylon::TimingTrace trace = build_timing_trace(
+        sample_rate, SAMPLES_PER_UNIT, labels, kinds, result.duration_units
     );
+    trace.audio_samples = static_cast<int64_t>(result.audio.size());
+    return trace;
+}
 
-    if (outputs.empty()) throw std::runtime_error("[VITS] No output tensor.");
-
-    const float* out = outputs.front().GetTensorData<float>();
-    auto out_shape   = outputs.front().GetTensorTypeAndShapeInfo().GetShape();
-    int64_t n        = out_shape.back();
-
-    // Normalize to int16 range
-    float peak = 0.01f;
-    for (int64_t i = 0; i < n; ++i) {
-        float v = std::abs(out[i]);
-        if (v > peak) peak = v;
-    }
-    float scale = 32767.0f / peak;
-
-    std::vector<int16_t> pcm(n);
-    for (int64_t i = 0; i < n; ++i) {
-        float v = out[i] * scale;
-        if (v < FMIN) v = FMIN;
-        if (v > FMAX) v = FMAX;
-        pcm[i] = (int16_t)v;
+Babylon::TimingTrace Session::timings(const std::vector<std::string>& phonemes) {
+    if (!timing_available) {
+        throw std::runtime_error(
+            "[VITS] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
+        );
     }
 
-    write_wav(output_path, pcm.data(), pcm.size(), (uint32_t)sample_rate);
+    InferenceResult result = run_inference(*session, timing_available, *phoneme_tokenizer, scales, phonemes);
+    std::vector<std::string> labels = build_labels(*phoneme_tokenizer, phonemes);
+    std::vector<Babylon::TimingKind> kinds = build_kinds(labels);
+    Babylon::TimingTrace trace = build_timing_trace(
+        sample_rate, SAMPLES_PER_UNIT, labels, kinds, result.duration_units
+    );
+    trace.audio_samples = static_cast<int64_t>(result.audio.size());
+    return trace;
+}
+
+bool Session::supports_timings() const {
+    return timing_available;
 }
 
 } // namespace Vits
@@ -284,7 +512,36 @@ static const std::unordered_map<std::string, int> KOKORO_VOCAB = {
 };
 
 static const std::array<const char*, 3> INPUT_NAMES  = {"input_ids", "style", "speed"};
-static const std::array<const char*, 1> OUTPUT_NAMES = {"waveform"};
+static const int64_t SAMPLES_PER_UNIT = 600;
+static const int STYLE_DIM = 256;
+static const int MAX_PHONEME_LENGTH = 510;
+static const int SAMPLE_RATE = 24000;
+
+struct InferenceResult {
+    std::vector<float> audio;
+    std::vector<int64_t> duration_units;
+};
+
+static std::vector<std::string> build_labels(const std::string& phonemes) {
+    std::vector<std::string> labels = {"<bos>"};
+    std::vector<std::string> chars = utf8_chars(phonemes);
+    labels.insert(labels.end(), chars.begin(), chars.end());
+    labels.push_back("<eos>");
+    return labels;
+}
+
+static std::vector<Babylon::TimingKind> build_kinds(const std::vector<std::string>& labels) {
+    std::vector<Babylon::TimingKind> kinds;
+    kinds.reserve(labels.size());
+    for (const auto& label : labels) {
+        if (label == "<bos>" || label == "<eos>") {
+            kinds.push_back(Babylon::TimingKind::Special);
+        } else {
+            kinds.push_back(classify_visible_token(label));
+        }
+    }
+    return kinds;
+}
 
 std::vector<int64_t> encode_phonemes(const std::string& phonemes) {
     std::vector<std::string> chars = utf8_chars(phonemes);
@@ -300,14 +557,14 @@ std::vector<int64_t> encode_phonemes(const std::string& phonemes) {
 }
 
 Session::Session(const std::string& model_path)
-    : env(ORT_LOGGING_LEVEL_WARNING, "Kokoro"), session(nullptr)
+    : timing_available(false), env(ORT_LOGGING_LEVEL_WARNING, "Kokoro"), session(nullptr)
 {
     env.DisableTelemetryEvents();
 
     Ort::SessionOptions opts;
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-    session = new Ort::Session(env, (const ORTCHAR_T*)model_path.c_str(), opts);
+    session = load_session_with_optional_timing(env, opts, model_path, timing_available);
 }
 
 Session::~Session() {
@@ -341,71 +598,159 @@ std::vector<float> Session::load_voice_style(const std::string& voice_path, int 
                               all_floats.begin() + safe + STYLE_DIM);
 }
 
-void Session::tts(
+static InferenceResult run_inference(
+    Ort::Session& session,
+    bool timing_available,
     const std::string& phonemes,
     const std::string& voice_path,
-    float speed,
-    const std::string& output_path
+    float speed
 ) {
-    // 1. Encode phonemes to token IDs
     std::vector<int64_t> ids = encode_phonemes(phonemes);
 
-    // n_tokens: phoneme count excluding the two wrapping special tokens, capped
     int n_tokens = std::min(std::max((int)ids.size() - 2, 0), MAX_PHONEME_LENGTH - 1);
 
-    // 2. Load voice style vector
-    std::vector<float> style = load_voice_style(voice_path, n_tokens);
+    std::vector<float> style;
+    {
+        std::ifstream f(voice_path, std::ios::binary);
+        if (!f.is_open()) {
+            throw std::runtime_error("[Kokoro] Could not open voice file: " + voice_path);
+        }
+
+        f.seekg(0, std::ios::end);
+        size_t byte_size = f.tellg();
+        f.seekg(0, std::ios::beg);
+
+        size_t float_count = byte_size / 4;
+        std::vector<float> all_floats(float_count);
+        f.read(reinterpret_cast<char*>(all_floats.data()), byte_size);
+
+        int offset = n_tokens * STYLE_DIM;
+        if (offset + STYLE_DIM <= (int)float_count) {
+            style = std::vector<float>(all_floats.begin() + offset,
+                                       all_floats.begin() + offset + STYLE_DIM);
+        } else {
+            int safe = std::max(0, (int)float_count - STYLE_DIM);
+            style = std::vector<float>(all_floats.begin() + safe,
+                                       all_floats.begin() + safe + STYLE_DIM);
+        }
+    }
+
     if ((int)style.size() != STYLE_DIM) {
         throw std::runtime_error("[Kokoro] Voice style vector has wrong size.");
     }
 
-    // 3. Build ONNX inputs
     Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-
     std::vector<Ort::Value> inputs;
 
-    // input_ids: [1, N]
     std::vector<int64_t> ids_shape = {1, (int64_t)ids.size()};
     inputs.push_back(Ort::Value::CreateTensor<int64_t>(
         mem_info, ids.data(), ids.size(), ids_shape.data(), ids_shape.size()
     ));
 
-    // style: [1, STYLE_DIM]
     std::vector<int64_t> style_shape = {1, STYLE_DIM};
     inputs.push_back(Ort::Value::CreateTensor<float>(
         mem_info, style.data(), style.size(), style_shape.data(), style_shape.size()
     ));
 
-    // speed: [1]
     float speed_val = speed;
     std::vector<int64_t> speed_shape = {1};
     inputs.push_back(Ort::Value::CreateTensor<float>(
         mem_info, &speed_val, 1, speed_shape.data(), speed_shape.size()
     ));
 
-    // 4. Run inference
-    auto outputs = session->Run(
+    std::vector<const char*> output_names = {"waveform"};
+    if (timing_available) output_names.push_back("duration");
+
+    auto outputs = session.Run(
         Ort::RunOptions{nullptr},
         INPUT_NAMES.data(), inputs.data(), INPUT_NAMES.size(),
-        OUTPUT_NAMES.data(), OUTPUT_NAMES.size()
+        output_names.data(), output_names.size()
     );
 
     if (outputs.empty()) throw std::runtime_error("[Kokoro] No output tensor.");
 
     const float* waveform = outputs.front().GetTensorData<float>();
-    auto out_shape = outputs.front().GetTensorTypeAndShapeInfo().GetShape();
-    int64_t n = out_shape.back();
+    size_t sample_count = outputs.front().GetTensorTypeAndShapeInfo().GetElementCount();
 
-    // 5. Convert float32 [-1, 1] → int16 PCM
+    InferenceResult result;
+    result.audio.assign(waveform, waveform + sample_count);
+    if (timing_available && outputs.size() > 1) {
+        result.duration_units = extract_duration_units(outputs[1]);
+    }
+    return result;
+}
+
+static void write_audio(const std::vector<float>& audio, const std::string& output_path) {
+    int64_t n = static_cast<int64_t>(audio.size());
+
     std::vector<int16_t> pcm(n);
     for (int64_t i = 0; i < n; ++i) {
-        float v = waveform[i];
+        float v = audio[i];
         if (v < -1.0f) v = -1.0f;
         if (v >  1.0f) v =  1.0f;
         pcm[i] = (int16_t)(v * 32767.0f);
     }
 
     write_wav(output_path, pcm.data(), pcm.size(), SAMPLE_RATE);
+}
+
+void Session::tts(
+    const std::string& phonemes,
+    const std::string& voice_path,
+    float speed,
+    const std::string& output_path
+) {
+    InferenceResult result = run_inference(*session, timing_available, phonemes, voice_path, speed);
+    write_audio(result.audio, output_path);
+}
+
+Babylon::TimingTrace Session::tts_with_timings(
+    const std::string& phonemes,
+    const std::string& voice_path,
+    float speed,
+    const std::string& output_path
+) {
+    if (!timing_available) {
+        throw std::runtime_error(
+            "[Kokoro] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
+        );
+    }
+
+    InferenceResult result = run_inference(*session, timing_available, phonemes, voice_path, speed);
+    write_audio(result.audio, output_path);
+
+    std::vector<std::string> labels = build_labels(phonemes);
+    std::vector<Babylon::TimingKind> kinds = build_kinds(labels);
+    Babylon::TimingTrace trace = build_timing_trace(
+        SAMPLE_RATE, SAMPLES_PER_UNIT, labels, kinds, result.duration_units
+    );
+    trace.audio_samples = static_cast<int64_t>(result.audio.size());
+    return trace;
+}
+
+Babylon::TimingTrace Session::timings(
+    const std::string& phonemes,
+    const std::string& voice_path,
+    float speed
+) {
+    if (!timing_available) {
+        throw std::runtime_error(
+            "[Kokoro] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
+        );
+    }
+
+    InferenceResult result = run_inference(*session, timing_available, phonemes, voice_path, speed);
+    std::vector<std::string> labels = build_labels(phonemes);
+    std::vector<Babylon::TimingKind> kinds = build_kinds(labels);
+    Babylon::TimingTrace trace = build_timing_trace(
+        SAMPLE_RATE, SAMPLES_PER_UNIT, labels, kinds, result.duration_units
+    );
+    trace.audio_samples = static_cast<int64_t>(result.audio.size());
+    return trace;
+}
+
+bool Session::supports_timings() const {
+    return timing_available;
 }
 
 } // namespace Kokoro
