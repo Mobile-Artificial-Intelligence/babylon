@@ -51,10 +51,10 @@ jobs:
           name: windows-x86_64
           path: windows
 
-      - name: Download macOS Universal Build Artifacts
+      - name: Download macOS ARM64 Build Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: macos-universal
+          name: macos-arm64
           path: macos
 
       - name: Create Build Directories
@@ -70,7 +70,7 @@ jobs:
       - name: Copy Windows Build Artifacts
         run: cp -r windows/* build/windows
 
-      - name: Copy macOS Universal Build Artifacts
+      - name: Copy macOS ARM64 Build Artifacts
         run: cp -r macos/* build/macos
 
       - name: Copy Models
