@@ -380,7 +380,7 @@ Babylon::TimingTrace Session::tts_with_timings(
 ) {
     if (!timing_available) {
         throw std::runtime_error(
-            "[VITS] Timing output unavailable. Create a sibling *.timing.onnx model with scripts/onnx/add_timing_output.py."
+            "[VITS] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
         );
     }
 
@@ -399,7 +399,7 @@ Babylon::TimingTrace Session::tts_with_timings(
 Babylon::TimingTrace Session::timings(const std::vector<std::string>& phonemes) {
     if (!timing_available) {
         throw std::runtime_error(
-            "[VITS] Timing output unavailable. Create a sibling *.timing.onnx model with scripts/onnx/add_timing_output.py."
+            "[VITS] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
         );
     }
 
@@ -712,7 +712,7 @@ Babylon::TimingTrace Session::tts_with_timings(
 ) {
     if (!timing_available) {
         throw std::runtime_error(
-            "[Kokoro] Timing output unavailable. Create a sibling *.timing.onnx model with scripts/onnx/add_timing_output.py."
+            "[Kokoro] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
         );
     }
 
@@ -735,7 +735,7 @@ Babylon::TimingTrace Session::timings(
 ) {
     if (!timing_available) {
         throw std::runtime_error(
-            "[Kokoro] Timing output unavailable. Create a sibling *.timing.onnx model with scripts/onnx/add_timing_output.py."
+            "[Kokoro] Timing output unavailable. Replace the model with a timing-enabled export or patch it in place with scripts/onnx/add_timing_output.py."
         );
     }
 

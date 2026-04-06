@@ -15,8 +15,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Python3 COMPONENTS Interpreter QUIET)
-
 # Set compiler options to support UTF-8 encoding
 if(MSVC)
     add_compile_options("/utf-8")
@@ -202,42 +200,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
         DEPENDS "${BABYLON_BIN_DIR}/.models_stamp"
     )
 
-    if(Python3_Interpreter_FOUND)
-        set(TIMING_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/onnx/add_timing_output.py")
-        set(TIMING_MODEL_OUTPUTS "")
-
-        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/kokoro-quantized.onnx")
-            add_custom_command(
-                OUTPUT "${BABYLON_BIN_DIR}/models/kokoro-quantized.timing.onnx"
-                COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_BIN_DIR}/models"
-                COMMAND ${Python3_EXECUTABLE} "${TIMING_SCRIPT}"
-                        --engine kokoro
-                        --input "${CMAKE_CURRENT_SOURCE_DIR}/models/kokoro-quantized.onnx"
-                        --output "${BABYLON_BIN_DIR}/models/kokoro-quantized.timing.onnx"
-                DEPENDS copy_models "${BABYLON_BIN_DIR}/.models_stamp" "${TIMING_SCRIPT}"
-                COMMENT "Creating timing-enabled Kokoro model"
-            )
-            list(APPEND TIMING_MODEL_OUTPUTS "${BABYLON_BIN_DIR}/models/kokoro-quantized.timing.onnx")
-        endif()
-
-        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/en-US-curie-vits.onnx")
-            add_custom_command(
-                OUTPUT "${BABYLON_BIN_DIR}/models/en-US-curie-vits.timing.onnx"
-                COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_BIN_DIR}/models"
-                COMMAND ${Python3_EXECUTABLE} "${TIMING_SCRIPT}"
-                        --engine vits
-                        --input "${CMAKE_CURRENT_SOURCE_DIR}/models/en-US-curie-vits.onnx"
-                        --output "${BABYLON_BIN_DIR}/models/en-US-curie-vits.timing.onnx"
-                DEPENDS copy_models "${BABYLON_BIN_DIR}/.models_stamp" "${TIMING_SCRIPT}"
-                COMMENT "Creating timing-enabled VITS model"
-            )
-            list(APPEND TIMING_MODEL_OUTPUTS "${BABYLON_BIN_DIR}/models/en-US-curie-vits.timing.onnx")
-        endif()
-
-        if(TIMING_MODEL_OUTPUTS)
-            add_custom_target(patch_timing_models ALL DEPENDS ${TIMING_MODEL_OUTPUTS})
-        endif()
-    endif()
 endif()
 
 # Copy data/dictionary.json into bin/models/ (alongside the other model files)
@@ -289,10 +251,6 @@ target_include_directories(
 )
 
 add_dependencies(babylon onnxruntime_build copy_onnxruntime)
-
-if(TARGET patch_timing_models)
-    add_dependencies(babylon patch_timing_models)
-endif()
 
 target_link_directories(
     babylon PUBLIC

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import shutil
 import sys
+import tempfile
 
 
 ENGINE_SOURCES = {
@@ -106,10 +108,28 @@ def main() -> int:
     set_metadata(model, "babylon_duration_output", "duration")
     set_metadata(model, "babylon_duration_samples_per_unit", SAMPLES_PER_UNIT[args.engine])
 
+    save_path = args.output_path
+    temp_path = None
+    if os.path.abspath(args.input_path) == os.path.abspath(args.output_path):
+        fd, temp_path = tempfile.mkstemp(
+            prefix="babylon-timing-",
+            suffix=os.path.splitext(args.output_path)[1] or ".onnx",
+            dir=os.path.dirname(os.path.abspath(args.output_path)) or None,
+        )
+        os.close(fd)
+        save_path = temp_path
+
     try:
         onnx.checker.check_model(model)
-        onnx.save(model, args.output_path)
+        onnx.save(model, save_path)
+        if temp_path is not None:
+            os.replace(temp_path, args.output_path)
     except Exception as exc:
+        if temp_path is not None:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
         return copy_fallback(
             args.input_path,
             args.output_path,
