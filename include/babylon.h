@@ -21,6 +21,26 @@ typedef struct {
   const unsigned char use_punctuation;
 } babylon_g2p_options_t;
 
+typedef struct {
+  const char* token;
+  const char* kind;
+  long long start_sample;
+  long long end_sample;
+  long long duration_samples;
+  long long duration_units;
+  double start_seconds;
+  double end_seconds;
+  double duration_seconds;
+} babylon_timing_item_t;
+
+typedef struct {
+  int sample_rate;
+  long long samples_per_unit;
+  long long audio_samples;
+  long long count;
+  babylon_timing_item_t* items;
+} babylon_timing_result_t;
+
 BABYLON_EXPORT int babylon_g2p_init(const char* model_path, babylon_g2p_options_t options);
 
 BABYLON_EXPORT char* babylon_g2p(const char* text);
@@ -34,13 +54,28 @@ BABYLON_EXPORT int babylon_tts_init(const char* model_path);
 
 BABYLON_EXPORT void babylon_tts(const char* text, const char* output_path);
 
+BABYLON_EXPORT babylon_timing_result_t* babylon_tts_with_timings(const char* text, const char* output_path);
+
+BABYLON_EXPORT babylon_timing_result_t* babylon_tts_timings(const char* text);
+
 BABYLON_EXPORT void babylon_tts_free(void);
 
 BABYLON_EXPORT int babylon_kokoro_init(const char* model_path);
 
 BABYLON_EXPORT void babylon_kokoro_tts(const char* text, const char* voice_path, float speed, const char* output_path);
 
+BABYLON_EXPORT babylon_timing_result_t* babylon_kokoro_tts_with_timings(
+  const char* text,
+  const char* voice_path,
+  float speed,
+  const char* output_path
+);
+
+BABYLON_EXPORT babylon_timing_result_t* babylon_kokoro_timings(const char* text, const char* voice_path, float speed);
+
 BABYLON_EXPORT void babylon_kokoro_free(void);
+
+BABYLON_EXPORT void babylon_timing_result_free(babylon_timing_result_t* result);
 
 #ifdef __cplusplus
 }
@@ -50,6 +85,35 @@ std::string normalize_text(const std::string& text);
 
 // Split UTF-8 string into individual unicode character strings
 std::vector<std::string> utf8_chars(const std::string& s);
+
+namespace Babylon {
+  enum class TimingKind {
+    Phoneme,
+    Blank,
+    Space,
+    Special,
+    Punctuation
+  };
+
+  struct TimingItem {
+    std::string token;
+    TimingKind kind;
+    int64_t start_sample;
+    int64_t end_sample;
+    int64_t duration_samples;
+    int64_t duration_units;
+    double start_seconds;
+    double end_seconds;
+    double duration_seconds;
+  };
+
+  struct TimingTrace {
+    int sample_rate;
+    int64_t samples_per_unit;
+    int64_t audio_samples;
+    std::vector<TimingItem> items;
+  };
+}
 
 namespace OpenPhonemizer {
 
@@ -89,6 +153,7 @@ namespace Vits {
     public:
       SequenceTokenizer(const std::vector<std::string>& phonemes, const std::vector<int>& phoneme_ids);
       std::vector<int64_t> operator()(const std::vector<std::string>& phonemes) const;
+      bool has_token(const std::string& phoneme) const;
 
     private:
       std::unordered_map<std::string, int> token_to_idx;
@@ -100,10 +165,14 @@ namespace Vits {
       ~Session();
 
       void tts(const std::vector<std::string>& phonemes, const std::string& output_path);
+      Babylon::TimingTrace tts_with_timings(const std::vector<std::string>& phonemes, const std::string& output_path);
+      Babylon::TimingTrace timings(const std::vector<std::string>& phonemes);
+      bool supports_timings() const;
 
     private:
       int sample_rate;
       std::vector<float> scales;
+      bool timing_available;
 
       Ort::Env env;
       Ort::Session* session;
@@ -128,11 +197,24 @@ namespace Kokoro {
         float speed,
         const std::string& output_path
       );
+      Babylon::TimingTrace tts_with_timings(
+        const std::string& phonemes,
+        const std::string& voice_path,
+        float speed,
+        const std::string& output_path
+      );
+      Babylon::TimingTrace timings(
+        const std::string& phonemes,
+        const std::string& voice_path,
+        float speed
+      );
+      bool supports_timings() const;
 
     private:
       static const int STYLE_DIM = 256;
       static const int MAX_PHONEME_LENGTH = 510;
       static const int SAMPLE_RATE = 24000;
+      bool timing_available;
 
       Ort::Env env;
       Ort::Session* session;

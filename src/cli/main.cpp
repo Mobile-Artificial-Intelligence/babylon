@@ -134,6 +134,7 @@ static void print_help_tts() {
         "  --kokoro-voice <name>   Same as --voice\n"
         "  --speed <float>         Speech speed for Kokoro (default: 1.0)\n"
         "  -o <path>               Output WAV file (default: output.wav)\n"
+        "  --timings <path>        Write token timing JSON for lip sync\n"
         "  -h, --help              Show this help\n"
         "\n"
         "Voice names are looked up in the kokoro_voices directory from config.\n"
@@ -205,6 +206,40 @@ static std::string strip_suffix(const std::string& s, const std::string& suffix)
     if (s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix)
         return s.substr(0, s.size() - suffix.size());
     return s;
+}
+
+static json timing_result_to_json(const babylon_timing_result_t* result) {
+    json items = json::array();
+    if (result && result->items) {
+        for (long long i = 0; i < result->count; ++i) {
+            const babylon_timing_item_t& item = result->items[i];
+            items.push_back({
+                {"token", item.token ? item.token : ""},
+                {"kind", item.kind ? item.kind : ""},
+                {"start_sample", item.start_sample},
+                {"end_sample", item.end_sample},
+                {"duration_samples", item.duration_samples},
+                {"duration_units", item.duration_units},
+                {"start_seconds", item.start_seconds},
+                {"end_seconds", item.end_seconds},
+                {"duration_seconds", item.duration_seconds},
+            });
+        }
+    }
+
+    return {
+        {"sample_rate", result ? result->sample_rate : 0},
+        {"samples_per_unit", result ? result->samples_per_unit : 0},
+        {"audio_samples", result ? result->audio_samples : 0},
+        {"items", std::move(items)},
+    };
+}
+
+static bool write_json_file(const std::string& path, const json& value) {
+    std::ofstream f(path);
+    if (!f) return false;
+    f << value.dump(2) << "\n";
+    return true;
 }
 
 static std::vector<std::string> list_voice_names(const std::string& dir) {
@@ -320,6 +355,7 @@ static int cmd_tts(int argc, char** argv) {
     std::string engine = "kokoro";
     std::string voice  = g_cfg.kokoro_voice;
     std::string output = "output.wav";
+    std::string timings_path;
     float speed        = 1.0f;
     std::string text;
 
@@ -333,6 +369,7 @@ static int cmd_tts(int argc, char** argv) {
                   a == "--kokoro-voice")             && i+1 < argc)  voice  = argv[++i];
         else if (a == "--speed"                      && i+1 < argc)  speed  = std::stof(argv[++i]);
         else if (a == "-o"                           && i+1 < argc)  output = argv[++i];
+        else if (a == "--timings"                    && i+1 < argc)  timings_path = argv[++i];
         else if (a[0] != '-')                                        text   = a;
     }
 
@@ -344,7 +381,21 @@ static int cmd_tts(int argc, char** argv) {
 
     if (engine == "vits") {
         if (!init_vits()) return 1;
-        babylon_tts(text.c_str(), output.c_str());
+        if (!timings_path.empty()) {
+            babylon_timing_result_t* timings = babylon_tts_with_timings(text.c_str(), output.c_str());
+            if (!timings) {
+                std::cerr << "Error: failed to compute VITS timings.\n";
+                return 1;
+            }
+            json j = timing_result_to_json(timings);
+            babylon_timing_result_free(timings);
+            if (!write_json_file(timings_path, j)) {
+                std::cerr << "Error: failed to write timings JSON: " << timings_path << "\n";
+                return 1;
+            }
+        } else {
+            babylon_tts(text.c_str(), output.c_str());
+        }
     } else {
         if (!init_kokoro()) return 1;
         std::string voice_path = resolve_voice(voice, g_cfg.kokoro_voices);
@@ -352,10 +403,26 @@ static int cmd_tts(int argc, char** argv) {
             std::cerr << "Error: --kokoro-voice is required for Kokoro engine.\n";
             return 1;
         }
-        babylon_kokoro_tts(text.c_str(), voice_path.c_str(), speed, output.c_str());
+        if (!timings_path.empty()) {
+            babylon_timing_result_t* timings =
+                babylon_kokoro_tts_with_timings(text.c_str(), voice_path.c_str(), speed, output.c_str());
+            if (!timings) {
+                std::cerr << "Error: failed to compute Kokoro timings.\n";
+                return 1;
+            }
+            json j = timing_result_to_json(timings);
+            babylon_timing_result_free(timings);
+            if (!write_json_file(timings_path, j)) {
+                std::cerr << "Error: failed to write timings JSON: " << timings_path << "\n";
+                return 1;
+            }
+        } else {
+            babylon_kokoro_tts(text.c_str(), voice_path.c_str(), speed, output.c_str());
+        }
     }
 
     std::cout << "Output: " << output << "\n";
+    if (!timings_path.empty()) std::cout << "Timings: " << timings_path << "\n";
     return 0;
 }
 
