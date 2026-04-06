@@ -689,6 +689,7 @@
   };
 
   const visemeImages = new Map();
+  const visemeBounds = new Map();
 
   function setStatus(message, error = false) {
     const status = $('status');
@@ -739,16 +740,78 @@
     ctx.closePath();
   }
 
-  function loadVisemeAssets() {
-    return Promise.all(VISIME_NAMES.map(name => new Promise(resolve => {
+  function measureOpaqueBounds(img) {
+    try {
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const { data } = ctx.getImageData(0, 0, width, height);
+      let minX = width;
+      let minY = height;
+      let maxX = -1;
+      let maxY = -1;
+
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if (data[(y * width + x) * 4 + 3] > 8) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        return { sx: 0, sy: 0, sw: width, sh: height };
+      }
+
+      const padX = Math.max(12, Math.round((maxX - minX + 1) * 0.05));
+      const padY = Math.max(12, Math.round((maxY - minY + 1) * 0.05));
+      const sx = Math.max(0, minX - padX);
+      const sy = Math.max(0, minY - padY);
+      const ex = Math.min(width, maxX + padX + 1);
+      const ey = Math.min(height, maxY + padY + 1);
+
+      return { sx, sy, sw: ex - sx, sh: ey - sy };
+    } catch {
+      return null;
+    }
+  }
+
+  function loadSingleViseme(name) {
+    const sources = [`/visemes/${name}.png`, `/visemes/${name}.jpg`];
+
+    return new Promise(resolve => {
       const img = new Image();
+      let index = 0;
+
+      const tryNext = () => {
+        if (index >= sources.length) {
+          resolve();
+          return;
+        }
+        img.src = sources[index];
+        index += 1;
+      };
+
       img.onload = () => {
         visemeImages.set(name, img);
+        visemeBounds.set(name, measureOpaqueBounds(img));
         resolve();
       };
-      img.onerror = () => resolve();
-      img.src = `/visemes/${name}.png`;
-    })));
+      img.onerror = tryNext;
+      tryNext();
+    });
+  }
+
+  function loadVisemeAssets() {
+    return Promise.all(VISIME_NAMES.map(name => loadSingleViseme(name)));
   }
 
   async function loadVoices() {
@@ -924,8 +987,12 @@
     }
   }
 
-  function drawImageContain(ctx, img, x, y, width, height) {
-    const imageRatio = img.width / img.height;
+  function drawImageContain(ctx, img, x, y, width, height, bounds = null) {
+    const sx = bounds ? bounds.sx : 0;
+    const sy = bounds ? bounds.sy : 0;
+    const sw = bounds ? bounds.sw : (img.naturalWidth || img.width);
+    const sh = bounds ? bounds.sh : (img.naturalHeight || img.height);
+    const imageRatio = sw / sh;
     const boxRatio = width / height;
     let drawWidth = width;
     let drawHeight = height;
@@ -936,7 +1003,7 @@
     }
     const drawX = x + (width - drawWidth) / 2;
     const drawY = y + (height - drawHeight) / 2;
-    ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+    ctx.drawImage(img, sx, sy, sw, sh, drawX, drawY, drawWidth, drawHeight);
   }
 
   function drawStage(timeSeconds = 0) {
@@ -949,6 +1016,7 @@
     const viseme = segment ? segment.viseme : 'sil';
     const color = VISIME_COLORS[viseme] || VISIME_COLORS.sil;
     const image = visemeImages.get(viseme) || visemeImages.get('sil');
+    const bounds = visemeBounds.get(viseme) || visemeBounds.get('sil') || null;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -978,45 +1046,114 @@
     const voiceLabel = state.engine === 'kokoro' ? (state.voice || 'default') : 'VITS default';
     ctx.fillText(`${state.engine.toUpperCase()}  |  ${voiceLabel}  |  speed ${state.speed.toFixed(2)}`, 88, 108);
 
-    roundRect(ctx, 80, 140, 1120, 420, 34);
+    roundRect(ctx, 80, 136, 1120, 474, 34);
     ctx.fillStyle = 'rgba(5, 10, 18, 0.78)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(132, 207, 255, 0.16)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    roundRect(ctx, 132, 176, 1016, 320, 28);
-    ctx.fillStyle = 'rgba(9, 18, 30, 0.92)';
+    const imageBox = { x: 112, y: 160, size: 426 };
+    const infoBox = { x: 572, y: 160, w: 588, h: 426 };
+
+    roundRect(ctx, imageBox.x, imageBox.y, imageBox.size, imageBox.size, 30);
+    ctx.fillStyle = 'rgba(8, 18, 30, 0.96)';
     ctx.fill();
+    ctx.strokeStyle = 'rgba(132, 207, 255, 0.16)';
+    ctx.stroke();
+
+    const spotlight = ctx.createRadialGradient(
+      imageBox.x + imageBox.size * 0.5,
+      imageBox.y + imageBox.size * 0.42,
+      20,
+      imageBox.x + imageBox.size * 0.5,
+      imageBox.y + imageBox.size * 0.5,
+      imageBox.size * 0.56
+    );
+    spotlight.addColorStop(0, 'rgba(255,255,255,0.14)');
+    spotlight.addColorStop(0.45, `${color}66`);
+    spotlight.addColorStop(1, 'rgba(8, 18, 30, 0)');
+    ctx.save();
+    roundRect(ctx, imageBox.x + 14, imageBox.y + 14, imageBox.size - 28, imageBox.size - 28, 24);
+    ctx.clip();
+    ctx.fillStyle = spotlight;
+    ctx.fillRect(imageBox.x, imageBox.y, imageBox.size, imageBox.size);
+    ctx.restore();
 
     if (image) {
       ctx.save();
-      roundRect(ctx, 156, 194, 968, 284, 22);
+      roundRect(ctx, imageBox.x + 12, imageBox.y + 12, imageBox.size - 24, imageBox.size - 24, 22);
       ctx.clip();
-      drawImageContain(ctx, image, 156, 194, 968, 284);
+      ctx.globalAlpha = 0.14;
+      drawImageContain(ctx, image, imageBox.x + 18, imageBox.y + 18, imageBox.size - 36, imageBox.size - 36, bounds);
+      ctx.globalAlpha = 1;
+      drawImageContain(ctx, image, imageBox.x + 12, imageBox.y + 12, imageBox.size - 24, imageBox.size - 24, bounds);
       ctx.restore();
     } else {
       ctx.fillStyle = '#87a6bf';
       ctx.font = '600 30px "Avenir Next", sans-serif';
-      ctx.fillText('Loading viseme artwork...', 408, 346);
+      ctx.fillText('Loading viseme artwork...', imageBox.x + 34, imageBox.y + imageBox.size / 2);
     }
 
+    roundRect(ctx, infoBox.x, infoBox.y, infoBox.w, infoBox.h, 30);
+    ctx.fillStyle = 'rgba(8, 18, 30, 0.82)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(132, 207, 255, 0.16)';
+    ctx.stroke();
+
     ctx.fillStyle = color;
-    ctx.font = '700 44px "Avenir Next", sans-serif';
-    ctx.fillText(viseme, 132, 530);
+    ctx.font = '700 18px "Avenir Next", sans-serif';
+    ctx.fillText('ACTIVE VISEME', infoBox.x + 34, infoBox.y + 46);
+
+    ctx.fillStyle = '#e3f1ff';
+    ctx.font = '700 96px "Avenir Next", sans-serif';
+    ctx.fillText(viseme, infoBox.x + 30, infoBox.y + 136);
 
     ctx.fillStyle = '#d8e8f7';
-    ctx.font = '600 22px "Avenir Next", sans-serif';
+    ctx.font = '600 26px "Avenir Next", sans-serif';
     const tokenLabel = item && item.token ? `Token ${item.token}` : 'No active token';
-    ctx.fillText(tokenLabel, 246, 528);
+    ctx.fillText(tokenLabel, infoBox.x + 34, infoBox.y + 186);
 
     ctx.fillStyle = '#91a9c2';
-    ctx.font = '500 18px "Avenir Next", sans-serif';
+    ctx.font = '500 19px "Avenir Next", sans-serif';
     const segmentLabel = segment ? `${formatSeconds(segment.start)} - ${formatSeconds(segment.end)}` : 'Waiting for timings';
-    ctx.fillText(segmentLabel, 246, 556);
+    ctx.fillText(segmentLabel, infoBox.x + 34, infoBox.y + 220);
+
+    const detailCards = [
+      { label: 'Playback', value: formatSeconds(clampedTime), x: infoBox.x + 34, y: infoBox.y + 258, w: 164, h: 106 },
+      { label: 'Clip', value: formatSeconds(duration), x: infoBox.x + 214, y: infoBox.y + 258, w: 164, h: 106 },
+      { label: 'Segments', value: String(state.segments.length), x: infoBox.x + 394, y: infoBox.y + 258, w: 160, h: 106 }
+    ];
+
+    for (const card of detailCards) {
+      roundRect(ctx, card.x, card.y, card.w, card.h, 22);
+      ctx.fillStyle = 'rgba(10, 22, 36, 0.92)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(132, 207, 255, 0.12)';
+      ctx.stroke();
+
+      ctx.fillStyle = '#7e97b2';
+      ctx.font = '700 15px "Avenir Next", sans-serif';
+      ctx.fillText(card.label.toUpperCase(), card.x + 18, card.y + 32);
+
+      ctx.fillStyle = '#f2f8ff';
+      ctx.font = '700 34px "Avenir Next", sans-serif';
+      ctx.fillText(card.value, card.x + 18, card.y + 74);
+    }
+
+    roundRect(ctx, infoBox.x + 34, infoBox.y + 382, infoBox.w - 68, 26, 999);
+    ctx.fillStyle = 'rgba(11, 24, 37, 0.95)';
+    ctx.fill();
+
+    if (duration > 0) {
+      const progressWidth = ((clampedTime / duration) * (infoBox.w - 68));
+      roundRect(ctx, infoBox.x + 34, infoBox.y + 382, progressWidth, 26, 999);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
 
     const barX = 88;
-    const barY = 612;
+    const barY = 640;
     const barWidth = 1104;
     const barHeight = 18;
 
