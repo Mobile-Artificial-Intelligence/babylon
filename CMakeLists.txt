@@ -34,7 +34,7 @@ add_library(
     src/lib/voice.cpp
 )
 
-if(NOT APPLE)
+if(NOT APPLE AND NOT WIN32)
     target_link_options(babylon PRIVATE LINKER:--build-id=none)
     target_compile_options(babylon PRIVATE "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=babylon")
 endif()
@@ -47,7 +47,7 @@ set_target_properties(
 )
 
 # On Linux/non-Apple: look for sibling shared libs in the same directory
-if(NOT APPLE AND NOT ANDROID)
+if(UNIX AND NOT APPLE AND NOT ANDROID)
     set_target_properties(
         babylon
         PROPERTIES
@@ -252,15 +252,10 @@ target_include_directories(
 
 add_dependencies(babylon onnxruntime_build copy_onnxruntime)
 
-target_link_directories(
-    babylon PUBLIC
-    ${BABYLON_BIN_DIR}
-)
-
 if(WIN32)
     target_link_libraries(
         babylon
-        onnxruntime.lib
+        onnxruntime
     )
 elseif(APPLE)
     target_link_libraries(
