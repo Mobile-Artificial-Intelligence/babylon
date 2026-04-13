@@ -1,4 +1,5 @@
 #include "babylon.h"
+#include "path_utils.h"
 #include <onnxruntime_cxx_api.h>
 #include <fstream>
 #include <sstream>
@@ -115,7 +116,7 @@ static std::unordered_map<std::string, std::string> load_dictionary(const std::s
     std::unordered_map<std::string, std::string> dict;
     if (path.empty()) return dict;
 
-    std::ifstream file(path, std::ios::binary);
+    std::ifstream file(BabylonPath::filesystem_path(path), std::ios::binary);
     if (!file.is_open()) {
         std::cerr << "[OpenPhonemizer] Could not open dictionary: " << path << std::endl;
         return dict;
@@ -286,7 +287,8 @@ Session::Session(
     opts.SetIntraOpNumThreads(1);
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-    session = new Ort::Session(env, (const ORTCHAR_T*)model_path.c_str(), opts);
+    BabylonPath::OrtPathString ort_model_path = BabylonPath::ort_path(model_path);
+    session = new Ort::Session(env, ort_model_path.c_str(), opts);
 
     dictionary = load_dictionary(dictionary_path);
 }

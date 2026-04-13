@@ -37,9 +37,9 @@ __pycache__
 .vscode
 build
 build-codex
-lib
-bin
-download
+/lib/
+/bin/
+/download/
 
 *.pdf
 *.synctex.gz

@@ -1,4 +1,5 @@
 #include "babylon.h"
+#include "path_utils.h"
 #include <onnxruntime_cxx_api.h>
 #include <string>
 #include <fstream>
@@ -40,7 +41,7 @@ static void write_wav(
     uint32_t sample_rate,
     uint16_t channels = 1
 ) {
-    std::ofstream f(path, std::ios::binary);
+    std::ofstream f(BabylonPath::filesystem_path(path), std::ios::binary);
     uint16_t sample_width = 2;
 
     WavHeader hdr;
@@ -68,8 +69,11 @@ static bool session_has_output(Ort::Session& session, const std::string& output_
 }
 
 static std::filesystem::path timing_variant_path(const std::string& model_path) {
-    std::filesystem::path path(model_path);
-    return path.parent_path() / (path.stem().string() + ".timing" + path.extension().string());
+    std::filesystem::path path = BabylonPath::filesystem_path(model_path);
+    std::string timing_name = path.stem().u8string();
+    timing_name += ".timing";
+    timing_name += path.extension().u8string();
+    return path.parent_path() / BabylonPath::filesystem_path(timing_name);
 }
 
 static Ort::Session* load_session_with_optional_timing(
@@ -78,15 +82,18 @@ static Ort::Session* load_session_with_optional_timing(
     const std::string& model_path,
     bool& timing_available
 ) {
-    Ort::Session* primary = new Ort::Session(env, (const ORTCHAR_T*)model_path.c_str(), opts);
+    std::filesystem::path primary_path = BabylonPath::filesystem_path(model_path);
+    BabylonPath::OrtPathString ort_primary_path = BabylonPath::ort_path(primary_path);
+    Ort::Session* primary = new Ort::Session(env, ort_primary_path.c_str(), opts);
     if (session_has_output(*primary, "duration")) {
         timing_available = true;
         return primary;
     }
 
     std::filesystem::path timing_path = timing_variant_path(model_path);
-    if (timing_path != model_path && std::filesystem::exists(timing_path)) {
-        Ort::Session* patched = new Ort::Session(env, (const ORTCHAR_T*)timing_path.string().c_str(), opts);
+    if (timing_path != primary_path && std::filesystem::exists(timing_path)) {
+        BabylonPath::OrtPathString ort_timing_path = BabylonPath::ort_path(timing_path);
+        Ort::Session* patched = new Ort::Session(env, ort_timing_path.c_str(), opts);
         if (session_has_output(*patched, "duration")) {
             delete primary;
             timing_available = true;
@@ -572,7 +579,7 @@ Session::~Session() {
 }
 
 std::vector<float> Session::load_voice_style(const std::string& voice_path, int n_tokens) {
-    std::ifstream f(voice_path, std::ios::binary);
+    std::ifstream f(BabylonPath::filesystem_path(voice_path), std::ios::binary);
     if (!f.is_open()) {
         throw std::runtime_error("[Kokoro] Could not open voice file: " + voice_path);
     }
@@ -611,7 +618,7 @@ static InferenceResult run_inference(
 
     std::vector<float> style;
     {
-        std::ifstream f(voice_path, std::ios::binary);
+        std::ifstream f(BabylonPath::filesystem_path(voice_path), std::ios::binary);
         if (!f.is_open()) {
             throw std::runtime_error("[Kokoro] Could not open voice file: " + voice_path);
         }
