@@ -122,7 +122,7 @@ int main(void) {
 
     babylon_kokoro_tts(
         "Hello world",
-        "models/voices/en-US-heart.bin",
+        "models/kokoro-voices/en-US-heart.bin",
         1.0f,
         "output.wav"
     );
@@ -148,7 +148,7 @@ int main() {
     Kokoro::Session kokoro("models/kokoro-quantized.onnx");
 
     std::string phonemes = phonemizer.phonemize("Hello world");
-    kokoro.tts(phonemes, "models/voices/en-US-heart.bin", 1.0f, "output.wav");
+    kokoro.tts(phonemes, "models/kokoro-voices/en-US-heart.bin", 1.0f, "output.wav");
 
     return 0;
 }

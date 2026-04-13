@@ -167,7 +167,7 @@ The library requires external model files that are not bundled in the repository
 \texttt{open-phonemizer.onnx}  & Open Phonemizer G2P model & \texttt{phonemizer\_model} \\
 \texttt{dictionary.json}       & Pronunciation dictionary  & \texttt{dictionary} \\
 \texttt{kokoro-quantized.onnx} & Kokoro TTS model          & \texttt{kokoro\_model} \\
-\texttt{voices/*.bin}          & Kokoro voice style files  & \texttt{kokoro\_voices} \\
+\texttt{kokoro-voices/*.bin}          & Kokoro voice style files  & \texttt{kokoro\_voices} \\
 \texttt{curie.onnx}            & VITS TTS model            & \texttt{vits\_model} \\
 \bottomrule
 \end{tabular}
@@ -287,7 +287,7 @@ babylon tts --vits "Hello world" -o hello.wav
 \end{tabular}
 \end{center}
 
-Voice names are filenames in the \texttt{kokoro\_voices} directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{models/voices/en-US-heart.bin}.
+Voice names are filenames in the \texttt{kokoro\_voices} directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{models/kokoro-voices/en-US-heart.bin}.
 
 \subsection{serve}
 
@@ -526,7 +526,7 @@ int main(void) {
 
     babylon_kokoro_tts(
         "Hello world",
-        "models/voices/en-US-heart.bin",
+        "models/kokoro-voices/en-US-heart.bin",
         1.0f,
         "output.wav"
     );
@@ -609,7 +609,7 @@ int main() {
     std::string phonemes = phonemizer.phonemize("Hello world");
 
     kokoro.tts(phonemes,
-               "models/voices/en-US-heart.bin",
+               "models/kokoro-voices/en-US-heart.bin",
                /* speed = */ 1.0f,
                "output.wav");
 
@@ -632,7 +632,7 @@ babylon.kokoro_init("models/kokoro-quantized.onnx")
 
 babylon.kokoro_tts(
     "Hello world",
-    "models/voices/en-US-heart.bin",
+    "models/kokoro-voices/en-US-heart.bin",
     speed=1.0,
     output_path="output.wav"
 )

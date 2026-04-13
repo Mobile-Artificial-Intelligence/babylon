@@ -3,7 +3,7 @@
   "dictionary":       "models/dictionary.json",
   "kokoro_model":     "models/kokoro-quantized.onnx",
   "kokoro_voice":     "en-US-heart",
-  "kokoro_voices":    "models/voices",
+  "kokoro_voices":    "models/kokoro-voices",
   "vits_model":       "models/en-US-curie-vits.onnx",
   "host":             "127.0.0.1",
   "port":             8775
