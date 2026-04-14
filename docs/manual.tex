@@ -90,7 +90,7 @@ The G2P pipeline converts raw text to IPA phonemes through three stages:
 
 \subsection{TTS Engines}
 
-Babylon.cpp supports two neural TTS backends.
+Babylon.cpp supports three neural TTS backends.
 
 \subsubsection{Kokoro}
 
@@ -104,6 +104,20 @@ The Kokoro synthesis pipeline:
     \item Load the voice style embedding for the current token count from the \texttt{.bin} file.
     \item Run the Kokoro ONNX model with \texttt{input\_ids}, \texttt{style}, and \texttt{speed} inputs to produce a PCM waveform.
     \item Write the waveform as a 24\,kHz WAV file.
+\end{enumerate}
+
+\subsubsection{kittenTTS}
+
+kittenTTS reuses the same Open Phonemizer pipeline and Kokoro-compatible IPA vocabulary, but applies a slightly different input wrapping and voice-style lookup strategy. Each voice is stored as a \texttt{.bin} file of float32 style rows with dimension 256.
+
+The kittenTTS synthesis pipeline:
+
+\begin{enumerate}
+    \item Phonemize the input text to an IPA string.
+    \item Encode the IPA string to token IDs using the Kokoro-compatible vocab, then append the kittenTTS stop marker so the final input becomes \texttt{[0, ..., 10, 0]}.
+    \item Load the voice style embedding row indexed by the phoneme-string length.
+    \item Run the kittenTTS ONNX model with \texttt{input\_ids}, \texttt{style}, and \texttt{speed} inputs.
+    \item Trim the short trailing artefact region and write the waveform as a 24\,kHz WAV file.
 \end{enumerate}
 
 \subsubsection{VITS}
@@ -168,6 +182,8 @@ The library requires external model files that are not bundled in the repository
 \texttt{dictionary.json}       & Pronunciation dictionary  & \texttt{dictionary} \\
 \texttt{kokoro-quantized.onnx} & Kokoro TTS model          & \texttt{kokoro\_model} \\
 \texttt{kokoro-voices/*.bin}          & Kokoro voice style files  & \texttt{kokoro\_voices} \\
+\texttt{kitten-tts.onnx}      & kittenTTS model           & \texttt{kitten\_model} \\
+\texttt{kitten-voices/*.bin}  & kittenTTS voice style files & \texttt{kitten\_voices} \\
 \texttt{curie.onnx}            & VITS TTS model            & \texttt{vits\_model} \\
 \bottomrule
 \end{tabular}
@@ -215,6 +231,9 @@ The following options apply to all subcommands and are processed before dispatch
 \texttt{--kokoro-model}     & \texttt{<path>} & Kokoro ONNX model \\
 \texttt{--kokoro-voice}     & \texttt{<name>} & Default Kokoro voice name \\
 \texttt{--kokoro-voices}    & \texttt{<dir>}  & Directory of voice \texttt{.bin} files \\
+\texttt{--kitten-model}     & \texttt{<path>} & kittenTTS ONNX model \\
+\texttt{--kitten-voice}     & \texttt{<name>} & Default kittenTTS voice name \\
+\texttt{--kitten-voices}    & \texttt{<dir>}  & Directory of kittenTTS \texttt{.bin} files \\
 \texttt{--vits-model}       & \texttt{<path>} & VITS ONNX model \\
 \texttt{-h}, \texttt{--help} &                & Show help \\
 \bottomrule
@@ -233,7 +252,10 @@ On startup, \texttt{babylon} automatically looks for a \texttt{config.json} in t
   "dictionary":       "models/dictionary.json",
   "kokoro_model":     "models/kokoro-quantized.onnx",
   "kokoro_voice":     "en-US-heart",
-  "kokoro_voices":    "models/voices",
+  "kokoro_voices":    "models/kokoro-voices",
+  "kitten_model":     "models/kitten-tts.onnx",
+  "kitten_voice":     "en-US-bella",
+  "kitten_voices":    "models/kitten-voices",
   "vits_model":       "models/curie.onnx",
   "host":             "127.0.0.1",
   "port":             8775
@@ -268,6 +290,7 @@ Synthesise speech and write a WAV file.
 babylon tts "Hello world"
 babylon tts "Hello world" -o hello.wav
 babylon tts --voice en-US-nova --speed 1.2 "Hello world"
+babylon tts --kitten --voice en-US-bella "Hello world"
 babylon tts --vits "Hello world" -o hello.wav
 \end{lstlisting}
 
@@ -277,17 +300,21 @@ babylon tts --vits "Hello world" -o hello.wav
 \textbf{Option} & \textbf{Argument} & \textbf{Description} \\
 \midrule
 \texttt{--kokoro}  &                  & Use the Kokoro engine (default) \\
+\texttt{--kitten}  &                  & Use the kittenTTS engine \\
 \texttt{--vits}    &                  & Use the VITS engine \\
-\texttt{--engine}  & \texttt{<name>}  & Select \texttt{kokoro} or \texttt{vits} explicitly \\
-\texttt{-v}, \texttt{--voice}, \texttt{--kokoro-voice} & \texttt{<name>} & Kokoro voice name \\
-\texttt{--speed}   & \texttt{<float>} & Speech speed multiplier (default: \texttt{1.0}) \\
+\texttt{--engine}  & \texttt{<name>}  & Select \texttt{kokoro}, \texttt{kitten}, or \texttt{vits} explicitly \\
+\texttt{-v}, \texttt{--voice} & \texttt{<name>} & Voice name for Kokoro or kittenTTS \\
+\texttt{--kokoro-voice} & \texttt{<name>} & Same as \texttt{--voice} for Kokoro \\
+\texttt{--kitten-voice} & \texttt{<name>} & Same as \texttt{--voice} for kittenTTS \\
+\texttt{--speed}   & \texttt{<float>} & Speech speed multiplier for Kokoro or kittenTTS (default: \texttt{1.0}) \\
 \texttt{-o}        & \texttt{<path>}  & Output WAV file (default: \texttt{output.wav}) \\
+\texttt{--timings} & \texttt{<path>}  & Write timing JSON alongside the WAV \\
 \texttt{-h}, \texttt{--help} &        & Show help \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Voice names are filenames in the \texttt{kokoro\_voices} directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{models/kokoro-voices/en-US-heart.bin}.
+Voice names are filenames in the engine-specific voices directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{models/kokoro-voices/en-US-heart.bin}, while \texttt{--kitten --voice en-US-bella} maps to \texttt{models/kitten-voices/en-US-bella.bin}.
 
 \subsection{serve}
 
@@ -328,12 +355,14 @@ Returns the availability of each engine and the number of loaded voices.
 {
   "phonemizer": true,
   "kokoro":     true,
+  "kitten":     true,
   "vits":       false,
-  "voices":     54
+  "voices":     54,
+  "kitten_voices": 8
 }
 \end{lstlisting}
 
-\texttt{phonemizer}, \texttt{kokoro}, and \texttt{vits} are booleans indicating whether the model file exists at the configured path. \texttt{voices} is the count of \texttt{.bin} files in the voices directory.
+\texttt{phonemizer}, \texttt{kokoro}, \texttt{kitten}, and \texttt{vits} are booleans indicating whether the model file exists at the configured path. \texttt{voices} is the Kokoro voice count, and \texttt{kitten\_voices} is the kittenTTS voice count.
 
 \subsection{GET /voices}
 
@@ -343,6 +372,16 @@ Returns a sorted JSON array of available Kokoro voice names.
 
 \begin{lstlisting}[language={}]
 ["en-GB-alice", "en-US-bella", "en-US-heart", ...]
+\end{lstlisting}
+
+\subsection{GET /voices/kitten}
+
+Returns a sorted JSON array of available kittenTTS voice names.
+
+\textbf{Response} (\texttt{application/json}):
+
+\begin{lstlisting}[language={}]
+["en-US-bella", "en-US-bruno", "en-US-hugo", ...]
 \end{lstlisting}
 
 \subsection{POST /phonemize}
@@ -386,9 +425,9 @@ Synthesise speech. Returns a WAV audio file on success.
 \textbf{Field} & \textbf{Type} & \textbf{Required} & \textbf{Description} \\
 \midrule
 \texttt{text}   & string & Yes & Input text \\
-\texttt{engine} & string & No  & \texttt{"kokoro"} (default) or \texttt{"vits"} \\
+\texttt{engine} & string & No  & \texttt{"kokoro"} (default), \texttt{"kitten"}, or \texttt{"vits"} \\
 \texttt{voice}  & string & No  & Voice name; defaults to the config value \\
-\texttt{speed}  & number & No  & Speech speed multiplier (default: \texttt{1.0}) \\
+\texttt{speed}  & number & No  & Speech speed multiplier for Kokoro or kittenTTS (default: \texttt{1.0}) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -506,6 +545,35 @@ void babylon_kokoro_free(void);
 
 Releases the Kokoro session.
 
+\subsection{kittenTTS}
+
+\subsubsection{babylon\_kitten\_init}
+
+\begin{lstlisting}[language=c]
+int babylon_kitten_init(const char* model_path);
+\end{lstlisting}
+
+Loads the kittenTTS ONNX model. The G2P session must already be initialised. Returns \texttt{0} on success.
+
+\subsubsection{babylon\_kitten\_tts}
+
+\begin{lstlisting}[language=c]
+void babylon_kitten_tts(const char* text,
+                        const char* voice_path,
+                        float       speed,
+                        const char* output_path);
+\end{lstlisting}
+
+Synthesises \texttt{text} using the kittenTTS voice style loaded from \texttt{voice\_path} at the given \texttt{speed}, writing a WAV file to \texttt{output\_path}.
+
+\subsubsection{babylon\_kitten\_free}
+
+\begin{lstlisting}[language=c]
+void babylon_kitten_free(void);
+\end{lstlisting}
+
+Releases the kittenTTS session.
+
 \subsection{C API Example}
 
 \begin{lstlisting}[language=c]
@@ -566,6 +634,22 @@ namespace OpenPhonemizer {
 
 \begin{lstlisting}[language=c++]
 namespace Kokoro {
+  class Session {
+  public:
+    Session(const std::string& model_path);
+
+    void tts(const std::string& phonemes,
+             const std::string& voice_path,
+             float speed,
+             const std::string& output_path);
+  };
+}
+\end{lstlisting}
+
+\subsection{Kitten::Session}
+
+\begin{lstlisting}[language=c++]
+namespace Kitten {
   class Session {
   public:
     Session(const std::string& model_path);
@@ -650,9 +734,9 @@ Features:
 
 \begin{itemize}[noitemsep]
     \item \textbf{Status indicator} — A dot in the header reflects engine availability from \texttt{GET /status}. Cyan indicates at least one engine is ready; red indicates no models are configured.
-    \item \textbf{Engine selector} — Switches between Kokoro and VITS. Options are disabled if the corresponding model is not available.
-    \item \textbf{Voice selector} — Populated from \texttt{GET /voices}; disabled when VITS is selected.
-    \item \textbf{Speed slider} — Controls Kokoro speech speed from 0.5$\times$ to 2.0$\times$.
+    \item \textbf{Engine selector} — Switches between Kokoro, kittenTTS, and VITS. Options are disabled if the corresponding model is not available.
+    \item \textbf{Voice selector} — Populated from \texttt{GET /voices} or \texttt{GET /voices/kitten}; disabled when VITS is selected.
+    \item \textbf{Speed slider} — Controls Kokoro and kittenTTS speech speed from 0.5$\times$ to 2.0$\times$.
     \item \textbf{Phonemize} — Sends \texttt{POST /phonemize} and displays the IPA result.
     \item \textbf{Speak} — Sends \texttt{POST /tts} and plays the returned WAV audio directly in the browser.
     \item \textbf{Keyboard shortcut} — \texttt{Ctrl+Enter} / \texttt{Cmd+Enter} triggers speech synthesis.

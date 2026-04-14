@@ -8,11 +8,13 @@ import tempfile
 
 
 ENGINE_SOURCES = {
+    "kitten": "/Clip_output_0",
     "kokoro": "/encoder/Cast_output_0",
     "vits": "w_ceil",
 }
 
 SAMPLES_PER_UNIT = {
+    "kitten": "600",
     "kokoro": "600",
     "vits": "256",
 }

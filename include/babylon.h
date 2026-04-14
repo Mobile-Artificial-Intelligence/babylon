@@ -75,6 +75,21 @@ BABYLON_EXPORT babylon_timing_result_t* babylon_kokoro_timings(const char* text,
 
 BABYLON_EXPORT void babylon_kokoro_free(void);
 
+BABYLON_EXPORT int babylon_kitten_init(const char* model_path);
+
+BABYLON_EXPORT void babylon_kitten_tts(const char* text, const char* voice_path, float speed, const char* output_path);
+
+BABYLON_EXPORT babylon_timing_result_t* babylon_kitten_tts_with_timings(
+  const char* text,
+  const char* voice_path,
+  float speed,
+  const char* output_path
+);
+
+BABYLON_EXPORT babylon_timing_result_t* babylon_kitten_timings(const char* text, const char* voice_path, float speed);
+
+BABYLON_EXPORT void babylon_kitten_free(void);
+
 BABYLON_EXPORT void babylon_timing_result_free(babylon_timing_result_t* result);
 
 #ifdef __cplusplus
@@ -220,6 +235,49 @@ namespace Kokoro {
       Ort::Session* session;
 
       std::vector<float> load_voice_style(const std::string& voice_path, int n_tokens);
+  };
+}
+
+namespace Kitten {
+
+  // Encode IPA phoneme string to KittenTTS model token IDs.
+  // Returns [0, ...phoneme_ids..., 10, 0].
+  std::vector<int64_t> encode_phonemes(const std::string& phonemes);
+
+  class Session {
+    public:
+      Session(const std::string& model_path);
+      ~Session();
+
+      void tts(
+        const std::string& phonemes,
+        const std::string& voice_path,
+        float speed,
+        const std::string& output_path
+      );
+      Babylon::TimingTrace tts_with_timings(
+        const std::string& phonemes,
+        const std::string& voice_path,
+        float speed,
+        const std::string& output_path
+      );
+      Babylon::TimingTrace timings(
+        const std::string& phonemes,
+        const std::string& voice_path,
+        float speed
+      );
+      bool supports_timings() const;
+
+    private:
+      static const int STYLE_DIM = 256;
+      static const int SAMPLE_RATE = 24000;
+      static const int TRIM_SAMPLES = 5000;
+      bool timing_available;
+
+      Ort::Env env;
+      Ort::Session* session;
+
+      std::vector<float> load_voice_style(const std::string& voice_path, size_t phoneme_length);
   };
 }
 

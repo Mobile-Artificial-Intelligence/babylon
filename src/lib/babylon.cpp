@@ -47,6 +47,7 @@ static babylon_timing_result_t* copy_timing_trace(const Babylon::TimingTrace& tr
 static OpenPhonemizer::Session* op     = nullptr;
 static Vits::Session*           vits   = nullptr;
 static Kokoro::Session*         kokoro = nullptr;
+static Kitten::Session*         kitten = nullptr;
 
 extern "C" {
 
@@ -261,6 +262,92 @@ extern "C" {
     BABYLON_EXPORT void babylon_kokoro_free(void) {
         delete kokoro;
         kokoro = nullptr;
+    }
+
+    BABYLON_EXPORT int babylon_kitten_init(const char* model_path) {
+        try {
+            kitten = new Kitten::Session(model_path);
+            return 0;
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] kitten init error: " << e.what() << std::endl;
+            return 1;
+        }
+    }
+
+    BABYLON_EXPORT void babylon_kitten_tts(
+        const char* text,
+        const char* voice_path,
+        float speed,
+        const char* output_path
+    ) {
+        if (!kitten) {
+            std::cerr << "[babylon] Kitten session not initialized." << std::endl;
+            return;
+        }
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
+            return;
+        }
+        try {
+            std::string phonemes = op->phonemize(text);
+            kitten->tts(phonemes, voice_path, speed, output_path);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] kitten_tts error: " << e.what() << std::endl;
+        }
+    }
+
+    BABYLON_EXPORT babylon_timing_result_t* babylon_kitten_tts_with_timings(
+        const char* text,
+        const char* voice_path,
+        float speed,
+        const char* output_path
+    ) {
+        if (!kitten) {
+            std::cerr << "[babylon] Kitten session not initialized." << std::endl;
+            return nullptr;
+        }
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
+            return nullptr;
+        }
+        try {
+            std::string phonemes = op->phonemize(text);
+            return copy_timing_trace(kitten->tts_with_timings(phonemes, voice_path, speed, output_path));
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] kitten tts with timings error: " << e.what() << std::endl;
+            return nullptr;
+        }
+    }
+
+    BABYLON_EXPORT babylon_timing_result_t* babylon_kitten_timings(
+        const char* text,
+        const char* voice_path,
+        float speed
+    ) {
+        if (!kitten) {
+            std::cerr << "[babylon] Kitten session not initialized." << std::endl;
+            return nullptr;
+        }
+        if (!op) {
+            std::cerr << "[babylon] OpenPhonemizer session not initialized." << std::endl;
+            return nullptr;
+        }
+        try {
+            std::string phonemes = op->phonemize(text);
+            return copy_timing_trace(kitten->timings(phonemes, voice_path, speed));
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[babylon] kitten timings error: " << e.what() << std::endl;
+            return nullptr;
+        }
+    }
+
+    BABYLON_EXPORT void babylon_kitten_free(void) {
+        delete kitten;
+        kitten = nullptr;
     }
 
     BABYLON_EXPORT void babylon_timing_result_free(babylon_timing_result_t* result) {

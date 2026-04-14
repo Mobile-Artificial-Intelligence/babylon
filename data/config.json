@@ -4,6 +4,9 @@
   "kokoro_model":     "models/kokoro-quantized.onnx",
   "kokoro_voice":     "en-US-heart",
   "kokoro_voices":    "models/kokoro-voices",
+  "kitten_model":     "models/kitten-tts.onnx",
+  "kitten_voice":     "en-US-bella",
+  "kitten_voices":    "models/kitten-voices",
   "vits_model":       "models/en-US-curie-vits.onnx",
   "host":             "127.0.0.1",
   "port":             8775

@@ -11,9 +11,10 @@
 
 Babylon.cpp is a C and C++ library for grapheme-to-phoneme (G2P) conversion and neural text-to-speech (TTS) synthesis. All inference runs locally using [ONNX Runtime](https://github.com/microsoft/onnxruntime) — no internet connection is required and no data leaves the host machine.
 
-It supports two TTS engines:
+It supports three TTS engines:
 
 - **[Kokoro](https://github.com/hexgrad/kokoro)** — High-quality multi-voice neural TTS at 24 kHz with 54+ voices across multiple languages.
+- **kittenTTS** — A lightweight 24 kHz multi-voice model that reuses the Open Phonemizer/Kokoro phoneme pipeline with engine-specific voice embeddings.
 - **[VITS](https://github.com/jaywalnut310/vits)** — End-to-end neural TTS; compatible with [Piper](https://github.com/rhasspy/piper) models.
 
 Phonemization is handled by **[Open Phonemizer](https://github.com/NeuralVox/OpenPhonemizer)** backed by a ~130,000-entry pronunciation dictionary.
@@ -59,6 +60,9 @@ babylon phonemize "Hello world"
 babylon tts "Hello world" -o hello.wav
 babylon tts --voice en-US-nova --speed 1.2 "Hello world"
 
+# Synthesise speech (kittenTTS)
+babylon tts --kitten --voice en-US-bella "Hello world" -o hello.wav
+
 # Synthesise speech (VITS)
 babylon tts --vits "Hello world" -o hello.wav
 
@@ -76,6 +80,9 @@ Global flags (apply to all subcommands):
 --kokoro-model <path>     Kokoro ONNX model
 --kokoro-voice <name>     Default Kokoro voice
 --kokoro-voices <dir>     Directory of voice .bin files
+--kitten-model <path>     kittenTTS ONNX model
+--kitten-voice <name>     Default kittenTTS voice
+--kitten-voices <dir>     Directory of kittenTTS voice .bin files
 --vits-model <path>       VITS ONNX model
 ```
 
@@ -88,6 +95,7 @@ When running `babylon serve`, the following endpoints are available:
 | GET    | `/`          | Web frontend (HTML)                    |
 | GET    | `/status`    | Engine availability and voice count    |
 | GET    | `/voices`    | List of available Kokoro voice names   |
+| GET    | `/voices/kitten` | List of available kittenTTS voice names |
 | POST   | `/phonemize` | Convert text to IPA or token IDs       |
 | POST   | `/tts`       | Synthesise speech, returns `audio/wav` |
 
@@ -101,12 +109,16 @@ When running `babylon serve`, the following endpoints are available:
 }
 ```
 
+`engine` accepts `kokoro`, `kitten`, or `vits`. Voice selection applies to the Kokoro and kittenTTS engines.
+
 **POST /phonemize** body:
 ```json
 { "text": "Hello world", "tokens": false }
 ```
 
 ## C API
+
+The C API exposes parallel entry points for each engine: `babylon_kokoro_*`, `babylon_kitten_*`, and the legacy `babylon_tts_*` VITS functions.
 
 ```c
 #include "babylon.h"
@@ -134,6 +146,8 @@ int main(void) {
 ```
 
 ## C++ API
+
+The C++ API follows the same split with `Kokoro::Session`, `Kitten::Session`, and `Vits::Session`.
 
 ```cpp
 #include "babylon.h"

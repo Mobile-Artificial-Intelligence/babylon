@@ -256,6 +256,35 @@ babylon_lib.babylon_kokoro_timings.restype = ctypes.POINTER(_BabylonTimingResult
 babylon_lib.babylon_kokoro_free.argtypes = []
 babylon_lib.babylon_kokoro_free.restype = None
 
+babylon_lib.babylon_kitten_init.argtypes = [ctypes.c_char_p]
+babylon_lib.babylon_kitten_init.restype = ctypes.c_int
+
+babylon_lib.babylon_kitten_tts.argtypes = [
+    ctypes.c_char_p,
+    ctypes.c_char_p,
+    ctypes.c_float,
+    ctypes.c_char_p,
+]
+babylon_lib.babylon_kitten_tts.restype = None
+
+babylon_lib.babylon_kitten_tts_with_timings.argtypes = [
+    ctypes.c_char_p,
+    ctypes.c_char_p,
+    ctypes.c_float,
+    ctypes.c_char_p,
+]
+babylon_lib.babylon_kitten_tts_with_timings.restype = ctypes.POINTER(_BabylonTimingResult)
+
+babylon_lib.babylon_kitten_timings.argtypes = [
+    ctypes.c_char_p,
+    ctypes.c_char_p,
+    ctypes.c_float,
+]
+babylon_lib.babylon_kitten_timings.restype = ctypes.POINTER(_BabylonTimingResult)
+
+babylon_lib.babylon_kitten_free.argtypes = []
+babylon_lib.babylon_kitten_free.restype = None
+
 babylon_lib.babylon_timing_result_free.argtypes = [ctypes.POINTER(_BabylonTimingResult)]
 babylon_lib.babylon_timing_result_free.restype = None
 
@@ -367,6 +396,58 @@ def kokoro_free() -> None:
     babylon_lib.babylon_kokoro_free()
 
 
+def kitten_init(model_path: PathLike) -> int:
+    return babylon_lib.babylon_kitten_init(_encode_path(model_path))
+
+
+def kitten_tts(
+    text: str,
+    voice_path: PathLike,
+    speed: float = 1.0,
+    output_path: PathLike = "output.wav",
+) -> None:
+    babylon_lib.babylon_kitten_tts(
+        text.encode("utf-8"),
+        _encode_path(voice_path),
+        float(speed),
+        _encode_path(output_path),
+    )
+
+
+def kitten_tts_with_timings(
+    text: str,
+    voice_path: PathLike,
+    speed: float = 1.0,
+    output_path: PathLike = "output.wav",
+) -> TimingTrace:
+    return _convert_timing_result(
+        babylon_lib.babylon_kitten_tts_with_timings(
+            text.encode("utf-8"),
+            _encode_path(voice_path),
+            float(speed),
+            _encode_path(output_path),
+        )
+    )
+
+
+def kitten_timings(
+    text: str,
+    voice_path: PathLike,
+    speed: float = 1.0,
+) -> TimingTrace:
+    return _convert_timing_result(
+        babylon_lib.babylon_kitten_timings(
+            text.encode("utf-8"),
+            _encode_path(voice_path),
+            float(speed),
+        )
+    )
+
+
+def kitten_free() -> None:
+    babylon_lib.babylon_kitten_free()
+
+
 # Backwards-compatible aliases for older wrapper naming.
 init_g2p = g2p_init
 init_tts = tts_init
@@ -374,6 +455,8 @@ free_g2p = g2p_free
 free_tts = tts_free
 init_kokoro = kokoro_init
 free_kokoro = kokoro_free
+init_kitten = kitten_init
+free_kitten = kitten_free
 vits_init = tts_init
 vits_tts = tts
 vits_tts_with_timings = tts_with_timings
@@ -400,12 +483,19 @@ __all__ = [
     "kokoro_tts_with_timings",
     "kokoro_timings",
     "kokoro_free",
+    "kitten_init",
+    "kitten_tts",
+    "kitten_tts_with_timings",
+    "kitten_timings",
+    "kitten_free",
     "init_g2p",
     "init_tts",
     "free_g2p",
     "free_tts",
     "init_kokoro",
     "free_kokoro",
+    "init_kitten",
+    "free_kitten",
     "vits_init",
     "vits_tts",
     "vits_tts_with_timings",
@@ -420,7 +510,9 @@ if __name__ == "__main__":
     dictionary_path = repo_root / "data" / "dictionary.json"
     vits_model_path = repo_root / "models" / "en-US-curie-vits.onnx"
     kokoro_model_path = repo_root / "models" / "kokoro-quantized.onnx"
-    voice_path = repo_root / "models" / "voices" / "en-US-heart.bin"
+    kitten_model_path = repo_root / "models" / "kitten-tts.onnx"
+    voice_path = repo_root / "models" / "kokoro-voices" / "en-US-heart.bin"
+    kitten_voice_path = repo_root / "models" / "kitten-voices" / "en-US-bella.bin"
     sequence = "Hello world, this is a python timing test of Babylon."
 
     if g2p_init(g2p_model_path, dictionary_path) == 0:
@@ -446,6 +538,15 @@ if __name__ == "__main__":
     else:
         print("Failed to initialize Kokoro")
 
+    if kitten_init(kitten_model_path) == 0:
+        print("Kitten initialized successfully")
+        trace = kitten_tts_with_timings(sequence, kitten_voice_path, speed=1.0, output_path=repo_root / "output-kitten.wav")
+        print("Kitten duration:", trace.duration_seconds)
+        print("Kitten first items:", trace.items[:5])
+    else:
+        print("Failed to initialize Kitten")
+
+    kitten_free()
     kokoro_free()
     tts_free()
     g2p_free()

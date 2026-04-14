@@ -507,6 +507,7 @@
           <label for="engine">Engine</label>
           <select id="engine" onchange="onEngineChange()">
             <option value="kokoro">Kokoro</option>
+            <option value="kitten">kittenTTS</option>
             <option value="vits">VITS</option>
           </select>
         </div>
@@ -814,21 +815,41 @@
     return Promise.all(VISIME_NAMES.map(name => loadSingleViseme(name)));
   }
 
-  async function loadVoices() {
+  function engineUsesVoices(engine) {
+    return engine === 'kokoro' || engine === 'kitten';
+  }
+
+  function voicesEndpointForEngine(engine) {
+    return engine === 'kitten' ? '/voices/kitten' : '/voices';
+  }
+
+  async function loadVoices(engine = $('engine').value) {
+    const select = $('voice');
+    select.innerHTML = '';
+
+    if (!engineUsesVoices(engine)) {
+      select.innerHTML = '<option value="">(not used)</option>';
+      state.voice = '';
+      return;
+    }
+
     try {
-      const response = await fetch('/voices');
+      const response = await fetch(voicesEndpointForEngine(engine));
       const voices = await response.json();
-      const select = $('voice');
-      select.innerHTML = '';
       if (!Array.isArray(voices) || voices.length === 0) {
         select.innerHTML = '<option value="">(no voices found)</option>';
+        state.voice = '';
         return;
       }
+      const previousVoice = state.voice;
       voices.forEach(voice => {
         const option = document.createElement('option');
         option.value = option.textContent = voice;
         select.appendChild(option);
       });
+      if (previousVoice && voices.includes(previousVoice)) {
+        select.value = previousVoice;
+      }
       state.voice = select.value;
     } catch (error) {
       setStatus(`Could not load voices: ${error.message}`, true);
@@ -839,12 +860,13 @@
     try {
       const response = await fetch('/status');
       const status = await response.json();
-      const healthy = !!(status.kokoro || status.vits);
+      const healthy = !!(status.kokoro || status.kitten || status.vits);
       $('health-dot').className = healthy ? 'dot' : 'dot err';
       $('health-text').textContent = healthy ? 'Models ready' : 'No TTS models found';
 
       for (const option of $('engine').options) {
         if (option.value === 'kokoro') option.disabled = !status.kokoro;
+        if (option.value === 'kitten') option.disabled = !status.kitten;
         if (option.value === 'vits') option.disabled = !status.vits;
       }
       for (const option of $('engine').options) {
@@ -853,18 +875,19 @@
           break;
         }
       }
-      onEngineChange();
+      await onEngineChange();
     } catch {
       $('health-dot').className = 'dot err';
       $('health-text').textContent = 'Server offline';
     }
   }
 
-  function onEngineChange() {
+  async function onEngineChange() {
     const engine = $('engine').value;
-    $('voice').disabled = engine === 'vits';
+    $('voice').disabled = !engineUsesVoices(engine);
     $('speed').disabled = engine === 'vits';
     state.engine = engine;
+    await loadVoices(engine);
   }
 
   function normalizeToken(token) {
@@ -1043,7 +1066,7 @@
 
     ctx.fillStyle = '#9ab2c7';
     ctx.font = '400 18px "Avenir Next", sans-serif';
-    const voiceLabel = state.engine === 'kokoro' ? (state.voice || 'default') : 'VITS default';
+    const voiceLabel = engineUsesVoices(state.engine) ? (state.voice || 'default') : 'VITS default';
     ctx.fillText(`${state.engine.toUpperCase()}  |  ${voiceLabel}  |  speed ${state.speed.toFixed(2)}`, 88, 108);
 
     roundRect(ctx, 80, 136, 1120, 474, 34);
@@ -1305,7 +1328,7 @@
     setStatus('Synthesizing aligned audio and timings...');
     try {
       const body = { text, engine, speed, timings: true };
-      if (engine === 'kokoro' && voice) body.voice = voice;
+      if (engineUsesVoices(engine) && voice) body.voice = voice;
 
       const response = await fetch('/tts', {
         method: 'POST',

@@ -54,6 +54,9 @@ struct Config {
     std::string kokoro_model;
     std::string kokoro_voice;
     std::string kokoro_voices;
+    std::string kitten_model;
+    std::string kitten_voice;
+    std::string kitten_voices;
     std::string vits_model;
     std::string host = "127.0.0.1";
     int port = 8775;
@@ -124,6 +127,9 @@ static Config load_config(const std::string& path, bool warn_if_missing = true) 
         if (j.contains("kokoro_model"))     cfg.kokoro_model     = resolve_config_path(config_dir, j["kokoro_model"]);
         if (j.contains("kokoro_voice"))     cfg.kokoro_voice     = j["kokoro_voice"];
         if (j.contains("kokoro_voices"))    cfg.kokoro_voices    = resolve_config_path(config_dir, j["kokoro_voices"]);
+        if (j.contains("kitten_model"))     cfg.kitten_model     = resolve_config_path(config_dir, j["kitten_model"]);
+        if (j.contains("kitten_voice"))     cfg.kitten_voice     = j["kitten_voice"];
+        if (j.contains("kitten_voices"))    cfg.kitten_voices    = resolve_config_path(config_dir, j["kitten_voices"]);
         if (j.contains("vits_model"))       cfg.vits_model       = resolve_config_path(config_dir, j["vits_model"]);
         if (j.contains("host"))             cfg.host             = j["host"];
         if (j.contains("port"))             cfg.port             = j["port"];
@@ -151,6 +157,9 @@ static void print_help_global() {
         "  --kokoro-model <path>    Kokoro TTS model (.onnx)\n"
         "  --kokoro-voice <path>    Kokoro voice style file (.bin)\n"
         "  --kokoro-voices <dir>    Directory of Kokoro voice style files\n"
+        "  --kitten-model <path>    kittenTTS model (.onnx)\n"
+        "  --kitten-voice <path>    kittenTTS voice style file (.bin)\n"
+        "  --kitten-voices <dir>    Directory of kittenTTS voice style files\n"
         "  --vits-model <path>      VITS TTS model (.onnx)\n"
         "  -h, --help               Show this help\n"
         "\n"
@@ -161,6 +170,9 @@ static void print_help_global() {
         "    \"kokoro_model\":  \"models/kokoro.onnx\",\n"
         "    \"kokoro_voice\":  \"models/kokoro-voices/en-US-heart.bin\",\n"
         "    \"kokoro_voices\": \"models/kokoro-voices\",\n"
+        "    \"kitten_model\":  \"models/kitten-tts.onnx\",\n"
+        "    \"kitten_voice\":  \"en-US-bella\",\n"
+        "    \"kitten_voices\": \"models/kitten-voices\",\n"
         "    \"vits_model\":    \"models/vits.onnx\",\n"
         "    \"host\":          \"127.0.0.1\",\n"
         "    \"port\":          8775\n"
@@ -177,19 +189,21 @@ static void print_help_tts() {
         "\n"
         "Options:\n"
         "  --kokoro                Use Kokoro TTS engine (default)\n"
+        "  --kitten                Use kittenTTS engine\n"
         "  --vits                  Use VITS TTS engine\n"
-        "  --engine <kokoro|vits>  TTS engine to use (longhand)\n"
-        "  -v, --voice <name>      Kokoro voice name (filename without .bin)\n"
-        "  --kokoro-voice <name>   Same as --voice\n"
-        "  --speed <float>         Speech speed for Kokoro (default: 1.0)\n"
+        "  --engine <kokoro|kitten|vits>  TTS engine to use (longhand)\n"
+        "  -v, --voice <name>      Voice name for Kokoro or kittenTTS\n"
+        "  --kokoro-voice <name>   Same as --voice when using Kokoro\n"
+        "  --kitten-voice <name>   Same as --voice when using kittenTTS\n"
+        "  --speed <float>         Speech speed for Kokoro or kittenTTS (default: 1.0)\n"
         "  -o <path>               Output WAV file (default: output.wav)\n"
         "  --timings <path>        Write token timing JSON for lip sync\n"
         "  -h, --help              Show this help\n"
         "\n"
-        "Voice names are looked up in the kokoro_voices directory from config.\n"
-        "  e.g. --voice heart  →  <kokoro_voices>/heart.bin\n"
+        "Voice names are looked up in the engine-specific voices directory from config.\n"
+        "  e.g. --voice en-US-bella  →  <kokoro_voices>/en-US-bella.bin or <kitten_voices>/en-US-bella.bin\n"
         "\n"
-        "Global model flags (--phonemizer-model, --kokoro-model, etc.) also apply.\n";
+        "Global model flags (--phonemizer-model, --kokoro-model, --kitten-model, etc.) also apply.\n";
 }
 
 static void print_help_serve() {
@@ -206,6 +220,7 @@ static void print_help_serve() {
         "Endpoints:\n"
         "  GET  /status       Returns status and available models/voices\n"
         "  GET  /voices       Lists available Kokoro voices\n"
+        "  GET  /voices/kitten Lists available kittenTTS voices\n"
         "  GET  /visemes/...  Serves viseme reference images for the web UI\n"
         "  POST /phonemize    Convert text to IPA phonemes\n"
         "  POST /tts          Synthesise speech, returns audio/wav or JSON with timings\n"
@@ -219,7 +234,7 @@ static void print_help_serve() {
         "POST /tts body (JSON):\n"
         "  {\n"
         "    \"text\":   \"Hello world\",  (required)\n"
-        "    \"engine\": \"kokoro\",       (optional, default: kokoro)\n"
+        "    \"engine\": \"kokoro\",       (optional, default: kokoro; also accepts kitten or vits)\n"
         "    \"voice\":  \"en-US-heart\",  (optional)\n"
         "    \"speed\":  1.0,            (optional, default: 1.0)\n"
         "    \"timings\": true           (optional, return JSON with audio_base64 + timings)\n"
@@ -353,12 +368,29 @@ static std::string resolve_voice(const std::string& voice, const std::string& vo
     return voices_dir + "/" + base + ".bin";
 }
 
+static bool is_supported_engine(const std::string& engine) {
+    return engine == "kokoro" || engine == "kitten" || engine == "vits";
+}
+
+static std::string default_voice_for_engine(const Config& cfg, const std::string& engine) {
+    if (engine == "kitten") return cfg.kitten_voice;
+    if (engine == "kokoro") return cfg.kokoro_voice;
+    return "";
+}
+
+static std::string voices_dir_for_engine(const Config& cfg, const std::string& engine) {
+    if (engine == "kitten") return cfg.kitten_voices;
+    if (engine == "kokoro") return cfg.kokoro_voices;
+    return "";
+}
+
 // ─── Global state ─────────────────────────────────────────────────────────────
 
 static Config      g_cfg;
 static std::string g_exe_dir;
 static bool        g_g2p_ready    = false;
 static bool        g_kokoro_ready = false;
+static bool        g_kitten_ready = false;
 static bool        g_vits_ready   = false;
 
 static bool init_g2p() {
@@ -385,6 +417,18 @@ static bool init_kokoro() {
         return false;
     }
     g_kokoro_ready = true;
+    return true;
+}
+
+static bool init_kitten() {
+    if (g_kitten_ready) return true;
+    if (g_cfg.kitten_model.empty()) { std::cerr << "Error: --kitten-model not set.\n"; return false; }
+    if (!init_g2p()) return false;
+    if (babylon_kitten_init(g_cfg.kitten_model.c_str()) != 0) {
+        std::cerr << "Error: failed to load kittenTTS model: " << g_cfg.kitten_model << "\n";
+        return false;
+    }
+    g_kitten_ready = true;
     return true;
 }
 
@@ -442,7 +486,7 @@ static int cmd_phonemize(int argc, char** argv) {
 
 static int cmd_tts(int argc, char** argv) {
     std::string engine = "kokoro";
-    std::string voice  = g_cfg.kokoro_voice;
+    std::string voice;
     std::string output = "output.wav";
     std::string timings_path;
     float speed        = 1.0f;
@@ -452,10 +496,12 @@ static int cmd_tts(int argc, char** argv) {
         std::string a = argv[i];
         if      (a == "-h" || a == "--help")                        { print_help_tts(); return 0; }
         else if (a == "--kokoro")                                    engine = "kokoro";
+        else if (a == "--kitten")                                    engine = "kitten";
         else if (a == "--vits")                                      engine = "vits";
         else if (a == "--engine"                     && i+1 < argc)  engine = argv[++i];
         else if ((a == "-v" || a == "--voice" ||
                   a == "--kokoro-voice")             && i+1 < argc)  voice  = argv[++i];
+        else if (a == "--kitten-voice"               && i+1 < argc)  voice  = argv[++i];
         else if (a == "--speed"                      && i+1 < argc)  speed  = std::stof(argv[++i]);
         else if (a == "-o"                           && i+1 < argc)  output = argv[++i];
         else if (a == "--timings"                    && i+1 < argc)  timings_path = argv[++i];
@@ -467,6 +513,13 @@ static int cmd_tts(int argc, char** argv) {
         print_help_tts();
         return 1;
     }
+
+    if (!is_supported_engine(engine)) {
+        std::cerr << "Error: unknown TTS engine '" << engine << "'.\n";
+        return 1;
+    }
+
+    if (voice.empty()) voice = default_voice_for_engine(g_cfg, engine);
 
     if (engine == "vits") {
         if (!init_vits()) return 1;
@@ -485,9 +538,32 @@ static int cmd_tts(int argc, char** argv) {
         } else {
             babylon_tts(text.c_str(), output.c_str());
         }
+    } else if (engine == "kitten") {
+        if (!init_kitten()) return 1;
+        std::string voice_path = resolve_voice(voice, voices_dir_for_engine(g_cfg, engine));
+        if (voice_path.empty()) {
+            std::cerr << "Error: --kitten-voice is required for kittenTTS engine.\n";
+            return 1;
+        }
+        if (!timings_path.empty()) {
+            babylon_timing_result_t* timings =
+                babylon_kitten_tts_with_timings(text.c_str(), voice_path.c_str(), speed, output.c_str());
+            if (!timings) {
+                std::cerr << "Error: failed to compute kittenTTS timings.\n";
+                return 1;
+            }
+            json j = timing_result_to_json(timings);
+            babylon_timing_result_free(timings);
+            if (!write_json_file(timings_path, j)) {
+                std::cerr << "Error: failed to write timings JSON: " << timings_path << "\n";
+                return 1;
+            }
+        } else {
+            babylon_kitten_tts(text.c_str(), voice_path.c_str(), speed, output.c_str());
+        }
     } else {
         if (!init_kokoro()) return 1;
-        std::string voice_path = resolve_voice(voice, g_cfg.kokoro_voices);
+        std::string voice_path = resolve_voice(voice, voices_dir_for_engine(g_cfg, engine));
         if (voice_path.empty()) {
             std::cerr << "Error: --kokoro-voice is required for Kokoro engine.\n";
             return 1;
@@ -604,20 +680,30 @@ static HttpResponse route_status() {
                       std::filesystem::exists(g_cfg.phonemizer_model);
     bool kokoro     = !g_cfg.kokoro_model.empty() &&
                       std::filesystem::exists(g_cfg.kokoro_model);
+    bool kitten     = !g_cfg.kitten_model.empty() &&
+                      std::filesystem::exists(g_cfg.kitten_model);
     bool vits       = !g_cfg.vits_model.empty() &&
                       std::filesystem::exists(g_cfg.vits_model);
     json j;
     j["phonemizer"] = phonemizer;
     j["kokoro"]     = kokoro;
+    j["kitten"]     = kitten;
     j["vits"]       = vits;
     j["voices"]     = list_voice_names(g_cfg.kokoro_voices).size();
+    j["kitten_voices"] = list_voice_names(g_cfg.kitten_voices).size();
     res.text_body(j.dump());
     return res;
 }
 
-static HttpResponse route_voices() {
+static HttpResponse route_voices(const std::string& engine = "kokoro") {
     HttpResponse res;
-    json j = list_voice_names(g_cfg.kokoro_voices);
+    if (engine != "kokoro" && engine != "kitten") {
+        res.status = 400;
+        res.text_body("{\"error\":\"unsupported voice engine\"}");
+        return res;
+    }
+
+    json j = list_voice_names(voices_dir_for_engine(g_cfg, engine));
     res.text_body(j.dump());
     return res;
 }
@@ -695,7 +781,12 @@ static HttpResponse route_tts(const std::string& body) {
     }
 
     if (engine.empty()) engine = "kokoro";
-    if (voice.empty())  voice  = g_cfg.kokoro_voice;
+    if (!is_supported_engine(engine)) {
+        res.status = 400;
+        res.text_body("{\"error\":\"unsupported engine\"}");
+        return res;
+    }
+    if (voice.empty())  voice  = default_voice_for_engine(g_cfg, engine);
 
     if (text.empty()) {
         res.status = 400;
@@ -722,13 +813,35 @@ static HttpResponse route_tts(const std::string& body) {
         } else {
             babylon_tts(text.c_str(), out.c_str());
         }
+    } else if (engine == "kitten") {
+        if (!init_kitten()) {
+            res.status = 500;
+            res.text_body("{\"error\":\"kittenTTS engine not available\"}");
+            return res;
+        }
+        std::string voice_path = resolve_voice(voice, voices_dir_for_engine(g_cfg, engine));
+        if (voice_path.empty()) {
+            res.status = 400;
+            res.text_body("{\"error\":\"'voice' is required for kittenTTS engine\"}");
+            return res;
+        }
+        if (timings) {
+            timing_result = babylon_kitten_tts_with_timings(text.c_str(), voice_path.c_str(), speed, out.c_str());
+            if (!timing_result) {
+                res.status = 500;
+                res.text_body("{\"error\":\"kittenTTS synthesis with timings failed\"}");
+                return res;
+            }
+        } else {
+            babylon_kitten_tts(text.c_str(), voice_path.c_str(), speed, out.c_str());
+        }
     } else {
         if (!init_kokoro()) {
             res.status = 500;
             res.text_body("{\"error\":\"Kokoro engine not available\"}");
             return res;
         }
-        std::string voice_path = resolve_voice(voice, g_cfg.kokoro_voices);
+        std::string voice_path = resolve_voice(voice, voices_dir_for_engine(g_cfg, engine));
         if (voice_path.empty()) {
             res.status = 400;
             res.text_body("{\"error\":\"'voice' is required for Kokoro engine\"}");
@@ -828,6 +941,8 @@ static HttpResponse dispatch(const HttpRequest& req) {
     if (req.method == "GET"  && (req.path == "/" || req.path == "/index.html")) return route_index();
     if (req.method == "GET"  && req.path == "/status")     return route_status();
     if (req.method == "GET"  && req.path == "/voices")     return route_voices();
+    if (req.method == "GET"  && req.path == "/voices/kokoro") return route_voices("kokoro");
+    if (req.method == "GET"  && req.path == "/voices/kitten") return route_voices("kitten");
     if (req.method == "GET"  && req.path.rfind("/visemes/", 0) == 0)
         return route_static_asset(req.path.substr(1));
     if (req.method == "POST" && req.path == "/phonemize")  return route_phonemize(req.body);
@@ -888,6 +1003,7 @@ static int cmd_serve(int argc, char** argv) {
     // Pre-load all configured models
     if (!g_cfg.phonemizer_model.empty())     init_g2p();
     if (!g_cfg.kokoro_model.empty()) init_kokoro();
+    if (!g_cfg.kitten_model.empty()) init_kitten();
     if (!g_cfg.vits_model.empty())   init_vits();
 
     std::cout << "babylon serve  http://" << host << ":" << port << "\n";
@@ -955,6 +1071,9 @@ int main(int argc, char** argv) {
         else if (a == "--kokoro-model"   && i+1 < argc) g_cfg.kokoro_model   = argv[++i];
         else if (a == "--kokoro-voice"   && i+1 < argc) g_cfg.kokoro_voice   = argv[++i];
         else if (a == "--kokoro-voices"  && i+1 < argc) g_cfg.kokoro_voices  = argv[++i];
+        else if (a == "--kitten-model"   && i+1 < argc) g_cfg.kitten_model   = argv[++i];
+        else if (a == "--kitten-voice"   && i+1 < argc) g_cfg.kitten_voice   = argv[++i];
+        else if (a == "--kitten-voices"  && i+1 < argc) g_cfg.kitten_voices  = argv[++i];
         else if (a == "--vits-model"     && i+1 < argc) g_cfg.vits_model     = argv[++i];
         else if (a == "--config"         && i+1 < argc) ++i; // already handled
     }
