@@ -11,6 +11,8 @@ on:
       - 'include/**'
       - 'src/cli/**'
       - 'data/**'
+      - 'models/**'
+      - 'voices/**'
       - 'CMakeLists.txt'
 
 jobs:
@@ -59,22 +61,39 @@ jobs:
 
       - name: Create Build Directories
         run: |
-            mkdir -p build/linux
-            mkdir -p build/windows
-            mkdir -p build/macos
+            mkdir -p build/linux/bin/lib
+            mkdir -p build/windows/bin/lib
+            mkdir -p build/macos/bin/lib
+            mkdir -p build/data
             mkdir -p build/models
+            mkdir -p build/voices
 
       - name: Copy Linux Build Artifacts
-        run: cp -r linux/* build/linux
+        run: |
+            cp -r linux/include build/linux/
+            cp linux/bin/babylon build/linux/bin/
+            cp -r linux/bin/lib/* build/linux/bin/lib/
 
       - name: Copy Windows Build Artifacts
-        run: cp -r windows/* build/windows
+        run: |
+            cp -r windows/include build/windows/
+            cp windows/bin/babylon.exe build/windows/bin/
+            cp -r windows/bin/lib/* build/windows/bin/lib/
 
       - name: Copy macOS ARM64 Build Artifacts
-        run: cp -r macos/* build/macos
+        run: |
+            cp -r macos/include build/macos/
+            cp macos/bin/babylon build/macos/bin/
+            cp -r macos/bin/lib/* build/macos/bin/lib/
 
-      - name: Copy Models
+      - name: Copy Shared Data Assets
+        run: cp -r data/* build/data
+
+      - name: Copy Shared Model Assets
         run: cp -r models/* build/models
+
+      - name: Copy Shared Voice Assets
+        run: cp -r voices/* build/voices
 
       - name: Copy Python Wrapper
         run: cp wrappers/babylon.py build/__init__.py

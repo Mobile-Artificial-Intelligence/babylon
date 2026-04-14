@@ -11,6 +11,8 @@ on:
       - 'include/**'
       - 'src/cli/**'
       - 'data/**'
+      - 'models/**'
+      - 'voices/**'
       - 'CMakeLists.txt'
 
 jobs:

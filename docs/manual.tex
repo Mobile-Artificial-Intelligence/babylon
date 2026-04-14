@@ -154,14 +154,15 @@ cd babylon.cpp
 \textbf{Target} & \textbf{Description} \\
 \midrule
 \texttt{make lib}     & Build \texttt{libbabylon} only \\
-\texttt{make cli}     & Build the library, CLI binary, and copy runtime files to \texttt{bin/} \\
+\texttt{make cli}     & Build the library, CLI binary, and install runtime files into \texttt{bin/} \\
+\texttt{make install} & Install the same runtime layout into \texttt{INSTALL\_DIR} \\
 \texttt{make debug}   & CLI build in Debug mode \\
 \texttt{make android} & Cross-compile the library for Android (requires NDK) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-All build output is placed in \texttt{bin/}. The \texttt{cli} target also copies \texttt{data/config.json}, \texttt{data/index.html}, \texttt{data/dictionary.json}, and the \texttt{models/} directory into \texttt{bin/}.
+All build output is placed in \texttt{bin/}. The source-root \texttt{bin/} tree and \texttt{cmake --install} share the same layout: \texttt{bin/babylon} for the executable, \texttt{bin/lib/} for shared libraries, \texttt{bin/data/} for config and web assets, \texttt{bin/models/} for ONNX models, and \texttt{bin/voices/} for Kokoro and kittenTTS voice files.
 
 \subsection{Android}
 
@@ -171,7 +172,7 @@ Android builds require the Android NDK (r27 or later). Set \texttt{ANDROID\_NDK\
 \section{Models}
 \label{sec:models}
 
-The library requires external model files that are not bundled in the repository. Place them in the \texttt{models/} directory, or configure their paths in \texttt{data/config.json}.
+The library requires external model files and voice assets that are not bundled in the repository. Place model files in \texttt{models/}, voice files in \texttt{voices/}, or configure their paths in \texttt{data/config.json}.
 
 \begin{center}
 \begin{tabular}{lll}
@@ -181,10 +182,10 @@ The library requires external model files that are not bundled in the repository
 \texttt{open-phonemizer.onnx}  & Open Phonemizer G2P model & \texttt{phonemizer\_model} \\
 \texttt{dictionary.json}       & Pronunciation dictionary  & \texttt{dictionary} \\
 \texttt{kokoro-quantized.onnx} & Kokoro TTS model          & \texttt{kokoro\_model} \\
-\texttt{kokoro-voices/*.bin}          & Kokoro voice style files  & \texttt{kokoro\_voices} \\
+\texttt{voices/kokoro/*.bin}          & Kokoro voice style files  & \texttt{kokoro\_voices} \\
 \texttt{kitten-tts.onnx}      & kittenTTS model           & \texttt{kitten\_model} \\
-\texttt{kitten-voices/*.bin}  & kittenTTS voice style files & \texttt{kitten\_voices} \\
-\texttt{curie.onnx}            & VITS TTS model            & \texttt{vits\_model} \\
+\texttt{voices/kitten/*.bin}  & kittenTTS voice style files & \texttt{kitten\_voices} \\
+\texttt{en-US-curie-vits.onnx} & VITS TTS model            & \texttt{vits\_model} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -240,7 +241,7 @@ The following options apply to all subcommands and are processed before dispatch
 \end{tabular}
 \end{center}
 
-On startup, \texttt{babylon} automatically looks for a \texttt{config.json} in the same directory as the executable and loads it silently. A \texttt{--config} flag overrides this, and individual flags override specific keys.
+On startup, \texttt{babylon} automatically looks for \texttt{data/config.json} under the installed tree and loads it silently. A \texttt{--config} flag overrides this, and individual flags override specific keys.
 
 \newpage
 
@@ -248,15 +249,15 @@ On startup, \texttt{babylon} automatically looks for a \texttt{config.json} in t
 
 \begin{lstlisting}[language={}]
 {
-  "phonemizer_model": "models/open-phonemizer.onnx",
-  "dictionary":       "models/dictionary.json",
-  "kokoro_model":     "models/kokoro-quantized.onnx",
+  "phonemizer_model": "../models/open-phonemizer.onnx",
+  "dictionary":       "dictionary.json",
+  "kokoro_model":     "../models/kokoro-quantized.onnx",
   "kokoro_voice":     "en-US-heart",
-  "kokoro_voices":    "models/kokoro-voices",
-  "kitten_model":     "models/kitten-tts.onnx",
+  "kokoro_voices":    "../voices/kokoro",
+  "kitten_model":     "../models/kitten-tts.onnx",
   "kitten_voice":     "en-US-bella",
-  "kitten_voices":    "models/kitten-voices",
-  "vits_model":       "models/curie.onnx",
+  "kitten_voices":    "../voices/kitten",
+  "vits_model":       "../models/en-US-curie-vits.onnx",
   "host":             "127.0.0.1",
   "port":             8775
 }
@@ -314,7 +315,7 @@ babylon tts --vits "Hello world" -o hello.wav
 \end{tabular}
 \end{center}
 
-Voice names are filenames in the engine-specific voices directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{models/kokoro-voices/en-US-heart.bin}, while \texttt{--kitten --voice en-US-bella} maps to \texttt{models/kitten-voices/en-US-bella.bin}.
+Voice names are filenames in the engine-specific voices directory without the \texttt{.bin} extension. For example, \texttt{--voice en-US-heart} maps to \texttt{voices/kokoro/en-US-heart.bin}, while \texttt{--kitten --voice en-US-bella} maps to \texttt{voices/kitten/en-US-bella.bin}.
 
 \subsection{serve}
 
@@ -337,7 +338,7 @@ babylon serve --host 0.0.0.0 --port 9000
 \end{tabular}
 \end{center}
 
-On startup, all configured models are pre-loaded. The web frontend is served at \texttt{GET /} from \texttt{index.html} in the same directory as the executable.
+On startup, all configured models are pre-loaded. The web frontend is served at \texttt{GET /} from \texttt{data/index.html} under the installed tree.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{REST API}
@@ -582,7 +583,7 @@ Releases the kittenTTS session.
 
 int main(void) {
     babylon_g2p_options_t opts = {
-        .dictionary_path = "models/dictionary.json",
+        .dictionary_path = "data/dictionary.json",
         .use_punctuation = 1,
     };
 
@@ -594,7 +595,7 @@ int main(void) {
 
     babylon_kokoro_tts(
         "Hello world",
-        "models/kokoro-voices/en-US-heart.bin",
+        "voices/kokoro/en-US-heart.bin",
         1.0f,
         "output.wav"
     );
@@ -684,7 +685,7 @@ namespace Vits {
 int main() {
     OpenPhonemizer::Session phonemizer(
         "models/open-phonemizer.onnx",
-        "models/dictionary.json",
+        "data/dictionary.json",
         /* use_punctuation = */ true
     );
 
@@ -693,7 +694,7 @@ int main() {
     std::string phonemes = phonemizer.phonemize("Hello world");
 
     kokoro.tts(phonemes,
-               "models/kokoro-voices/en-US-heart.bin",
+               "voices/kokoro/en-US-heart.bin",
                /* speed = */ 1.0f,
                "output.wav");
 
@@ -711,12 +712,12 @@ A pre-built Python package is available as a CI artifact. It bundles the compile
 import babylon
 
 babylon.g2p_init("models/open-phonemizer.onnx",
-                 "models/dictionary.json")
+                 "data/dictionary.json")
 babylon.kokoro_init("models/kokoro-quantized.onnx")
 
 babylon.kokoro_tts(
     "Hello world",
-    "models/kokoro-voices/en-US-heart.bin",
+    "voices/kokoro/en-US-heart.bin",
     speed=1.0,
     output_path="output.wav"
 )

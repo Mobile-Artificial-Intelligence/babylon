@@ -1,7 +1,8 @@
 # Variables
 BUILD_DIR = build
 BIN_DIR = bin
-CMAKE_FLAGS = -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(CURDIR)/$(BIN_DIR)
+INSTALL_DIR ?= $(CURDIR)/install
+CMAKE_FLAGS = -DBABYLON_BIN_DIR=$(CURDIR)/$(BIN_DIR)
 CORES ?= 1
 
 # Default target
@@ -23,6 +24,10 @@ cli:
 
 # Release build — alias for cli
 release: cli
+
+# Install into a prefix while preserving the bin/ layout
+install: cli
+	@cmake --install $(BUILD_DIR) --prefix $(INSTALL_DIR)
 
 # Source build
 source:
@@ -52,4 +57,4 @@ clean:
 	@$(RM) -r $(BIN_DIR)
 	@$(RM) -r $(CURDIR)/lib
 
-.PHONY: all lib cli release source android debug clean
+.PHONY: all lib cli release install source android debug clean

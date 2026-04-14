@@ -96,32 +96,38 @@ class _BabylonTimingResult(ctypes.Structure):
     ]
 
 
-def _platform_library_name() -> tuple[str, str]:
+def _platform_library_names() -> tuple[list[str], str]:
     if sys.platform.startswith("win"):
-        return "libbabylon.dll", "windows"
+        return ["babylon.dll", "libbabylon.dll"], "windows"
     if sys.platform == "darwin":
-        return "libbabylon.dylib", "macos"
-    return "libbabylon.so", "linux"
+        return ["libbabylon.dylib"], "macos"
+    return ["libbabylon.so"], "linux"
 
 
 def _iter_library_candidates():
-    library_name, platform_dir = _platform_library_name()
+    library_names, platform_dir = _platform_library_names()
     roots = [CURRENT_DIR, CURRENT_DIR.parent]
-    rel_paths = [
-        Path(platform_dir) / library_name,
-        Path(platform_dir) / "bin" / library_name,
-        Path("bin") / library_name,
-        Path(library_name),
-    ]
 
     seen = set()
     for root in roots:
-        for rel_path in rel_paths:
-            candidate = (root / rel_path).resolve()
-            if candidate in seen:
-                continue
-            seen.add(candidate)
-            yield candidate
+        for library_name in library_names:
+            rel_paths = [
+                Path(platform_dir) / "bin" / "lib" / library_name,
+                Path(platform_dir) / "lib" / library_name,
+                Path(platform_dir) / library_name,
+                Path(platform_dir) / "bin" / library_name,
+                Path("bin") / "lib" / library_name,
+                Path("lib") / library_name,
+                Path("bin") / library_name,
+                Path(library_name),
+            ]
+
+            for rel_path in rel_paths:
+                candidate = (root / rel_path).resolve()
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                yield candidate
 
 
 def _load_library() -> ctypes.CDLL:
@@ -511,8 +517,8 @@ if __name__ == "__main__":
     vits_model_path = repo_root / "models" / "en-US-curie-vits.onnx"
     kokoro_model_path = repo_root / "models" / "kokoro-quantized.onnx"
     kitten_model_path = repo_root / "models" / "kitten-tts.onnx"
-    voice_path = repo_root / "models" / "kokoro-voices" / "en-US-heart.bin"
-    kitten_voice_path = repo_root / "models" / "kitten-voices" / "en-US-bella.bin"
+    voice_path = repo_root / "voices" / "kokoro" / "en-US-heart.bin"
+    kitten_voice_path = repo_root / "voices" / "kitten" / "en-US-bella.bin"
     sequence = "Hello world, this is a python timing test of Babylon."
 
     if g2p_init(g2p_model_path, dictionary_path) == 0:

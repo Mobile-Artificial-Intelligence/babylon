@@ -139,6 +139,27 @@ static Config load_config(const std::string& path, bool warn_if_missing = true) 
     return cfg;
 }
 
+static std::vector<std::string> auto_config_candidates(const std::string& exe_dir) {
+    return {
+        (std::filesystem::path(exe_dir) / "data" / "config.json").lexically_normal().string(),
+        (std::filesystem::path(exe_dir) / "config.json").lexically_normal().string(),
+    };
+}
+
+static void configure_runtime_library_path(const std::string& exe_dir) {
+#ifdef _WIN32
+    std::filesystem::path lib_dir = (std::filesystem::path(exe_dir) / "lib").lexically_normal();
+    if (!std::filesystem::exists(lib_dir)) return;
+
+    if (!SetDllDirectoryW(lib_dir.native().c_str())) {
+        std::cerr << "Warning: failed to add runtime library directory: "
+                  << lib_dir.string() << "\n";
+    }
+#else
+    (void)exe_dir;
+#endif
+}
+
 // ─── Help ─────────────────────────────────────────────────────────────────────
 
 static void print_help_global() {
@@ -155,27 +176,27 @@ static void print_help_global() {
         "  --phonemizer-model <path> Phonemizer model (.onnx)\n"
         "  --dictionary <path>      Pronunciation dictionary (.json)\n"
         "  --kokoro-model <path>    Kokoro TTS model (.onnx)\n"
-        "  --kokoro-voice <path>    Kokoro voice style file (.bin)\n"
+        "  --kokoro-voice <name>    Default Kokoro voice name\n"
         "  --kokoro-voices <dir>    Directory of Kokoro voice style files\n"
         "  --kitten-model <path>    kittenTTS model (.onnx)\n"
-        "  --kitten-voice <path>    kittenTTS voice style file (.bin)\n"
+        "  --kitten-voice <name>    Default kittenTTS voice name\n"
         "  --kitten-voices <dir>    Directory of kittenTTS voice style files\n"
         "  --vits-model <path>      VITS TTS model (.onnx)\n"
         "  -h, --help               Show this help\n"
         "\n"
         "Config file format (JSON):\n"
         "  {\n"
-        "    \"phonemizer_model\":      \"models/open-phonemizer.onnx\",\n"
-        "    \"dictionary\":    \"models/dictionary.json\",\n"
-        "    \"kokoro_model\":  \"models/kokoro.onnx\",\n"
-        "    \"kokoro_voice\":  \"models/kokoro-voices/en-US-heart.bin\",\n"
-        "    \"kokoro_voices\": \"models/kokoro-voices\",\n"
-        "    \"kitten_model\":  \"models/kitten-tts.onnx\",\n"
-        "    \"kitten_voice\":  \"en-US-bella\",\n"
-        "    \"kitten_voices\": \"models/kitten-voices\",\n"
-        "    \"vits_model\":    \"models/vits.onnx\",\n"
-        "    \"host\":          \"127.0.0.1\",\n"
-        "    \"port\":          8775\n"
+        "    \"phonemizer_model\": \"../models/open-phonemizer.onnx\",\n"
+        "    \"dictionary\":       \"dictionary.json\",\n"
+        "    \"kokoro_model\":     \"../models/kokoro-quantized.onnx\",\n"
+        "    \"kokoro_voice\":     \"en-US-heart\",\n"
+        "    \"kokoro_voices\":    \"../voices/kokoro\",\n"
+        "    \"kitten_model\":     \"../models/kitten-tts.onnx\",\n"
+        "    \"kitten_voice\":     \"en-US-bella\",\n"
+        "    \"kitten_voices\":    \"../voices/kitten\",\n"
+        "    \"vits_model\":       \"../models/en-US-curie-vits.onnx\",\n"
+        "    \"host\":             \"127.0.0.1\",\n"
+        "    \"port\":             8775\n"
         "  }\n"
         "\n"
         "Run 'babylon <command> --help' for command-specific help.\n";
@@ -903,7 +924,7 @@ static HttpResponse route_static_asset(const std::string& request_path) {
         }
     }
 
-    std::filesystem::path full = (std::filesystem::path(g_exe_dir) / rel).lexically_normal();
+    std::filesystem::path full = (std::filesystem::path(g_exe_dir) / "data" / rel).lexically_normal();
     if (!std::filesystem::exists(full) || !std::filesystem::is_regular_file(full)) {
         res.status = 404;
         res.text_body("{\"error\":\"not found\"}");
@@ -924,7 +945,7 @@ static HttpResponse route_static_asset(const std::string& request_path) {
 
 static HttpResponse route_index() {
     HttpResponse res;
-    std::string path = g_exe_dir + "/index.html";
+    std::string path = (std::filesystem::path(g_exe_dir) / "data" / "index.html").lexically_normal().string();
     std::ifstream f(path);
     if (!f) {
         res.status = 404;
@@ -1038,6 +1059,7 @@ static int cmd_serve(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     g_exe_dir = exe_dir(argv[0]);
+    configure_runtime_library_path(g_exe_dir);
     if (argc < 2) { print_help_global(); return 0; }
 
     // Find subcommand index
@@ -1047,11 +1069,14 @@ int main(int argc, char** argv) {
         if (a == "phonemize" || a == "tts" || a == "serve") { subcmd_idx = i; break; }
     }
 
-    // Pass 0: auto-load config.json from the executable's directory (silent if absent)
+    // Pass 0: auto-load config.json from the installed data directory (silent if absent)
     {
-        auto auto_cfg = exe_dir(argv[0]) + "/config.json";
-        if (std::filesystem::exists(auto_cfg))
-            g_cfg = load_config(auto_cfg, false);
+        for (const auto& auto_cfg : auto_config_candidates(g_exe_dir)) {
+            if (std::filesystem::exists(auto_cfg)) {
+                g_cfg = load_config(auto_cfg, false);
+                break;
+            }
+        }
     }
 
     // Pass 1: find --config and load it (overrides auto-loaded values)

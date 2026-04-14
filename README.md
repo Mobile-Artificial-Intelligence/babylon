@@ -38,18 +38,33 @@ cd babylon.cpp
 make cli
 ```
 
-This builds the library, CLI binary, and ONNX Runtime from source. All output goes to `bin/`.
+This builds the library, CLI binary, and ONNX Runtime from source. Both the source-root `bin/` output and `cmake --install` use the same runtime layout:
+
+- `bin/babylon` — CLI executable
+- `bin/lib/` — shared libraries
+- `bin/data/` — config, dictionary, web UI, and viseme assets
+- `bin/models/` — ONNX model files
+- `bin/voices/` — Kokoro and kittenTTS voice files
+
+To install into a separate prefix:
+
+```bash
+make install INSTALL_DIR=/path/to/stage
+# or
+cmake --install build --prefix /path/to/stage
+```
 
 | Target         | Description                              |
 |----------------|------------------------------------------|
 | `make lib`     | Library only                             |
 | `make cli`     | Library + CLI binary + runtime files     |
+| `make install` | Install the same layout into `INSTALL_DIR` |
 | `make debug`   | CLI build in Debug mode                  |
 | `make android` | Cross-compile for Android (requires NDK) |
 
 ## CLI
 
-The `babylon` binary provides three subcommands. It auto-loads `config.json` from the same directory as the executable on startup.
+The `babylon` binary provides three subcommands. It auto-loads `data/config.json` from the installed tree on startup.
 
 ```bash
 # Phonemize text to IPA
@@ -125,7 +140,7 @@ The C API exposes parallel entry points for each engine: `babylon_kokoro_*`, `ba
 
 int main(void) {
     babylon_g2p_options_t opts = {
-        .dictionary_path = "models/dictionary.json",
+        .dictionary_path = "data/dictionary.json",
         .use_punctuation = 1,
     };
 
@@ -134,7 +149,7 @@ int main(void) {
 
     babylon_kokoro_tts(
         "Hello world",
-        "models/kokoro-voices/en-US-heart.bin",
+        "voices/kokoro/en-US-heart.bin",
         1.0f,
         "output.wav"
     );
@@ -155,14 +170,14 @@ The C++ API follows the same split with `Kokoro::Session`, `Kitten::Session`, an
 int main() {
     OpenPhonemizer::Session phonemizer(
         "models/open-phonemizer.onnx",
-        "models/dictionary.json",
+        "data/dictionary.json",
         /* use_punctuation = */ true
     );
 
     Kokoro::Session kokoro("models/kokoro-quantized.onnx");
 
     std::string phonemes = phonemizer.phonemize("Hello world");
-    kokoro.tts(phonemes, "models/kokoro-voices/en-US-heart.bin", 1.0f, "output.wav");
+    kokoro.tts(phonemes, "voices/kokoro/en-US-heart.bin", 1.0f, "output.wav");
 
     return 0;
 }

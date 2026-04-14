@@ -1,13 +1,13 @@
 {
-  "phonemizer_model": "models/open-phonemizer.onnx",
-  "dictionary":       "models/dictionary.json",
-  "kokoro_model":     "models/kokoro-quantized.onnx",
+  "phonemizer_model": "../models/open-phonemizer.onnx",
+  "dictionary":       "dictionary.json",
+  "kokoro_model":     "../models/kokoro-quantized.onnx",
   "kokoro_voice":     "en-US-heart",
-  "kokoro_voices":    "models/kokoro-voices",
-  "kitten_model":     "models/kitten-tts.onnx",
+  "kokoro_voices":    "../voices/kokoro",
+  "kitten_model":     "../models/kitten-tts.onnx",
   "kitten_voice":     "en-US-bella",
-  "kitten_voices":    "models/kitten-voices",
-  "vits_model":       "models/en-US-curie-vits.onnx",
+  "kitten_voices":    "../voices/kitten",
+  "vits_model":       "../models/en-US-curie-vits.onnx",
   "host":             "127.0.0.1",
   "port":             8775
 }

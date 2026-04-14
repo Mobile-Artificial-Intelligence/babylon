@@ -9,6 +9,8 @@ on:
       - '.github/workflows/build-android.yml'
       - 'src/**'
       - 'include/**'
+      - 'models/**'
+      - 'voices/**'
       - 'CMakeLists.txt'
 
 jobs:

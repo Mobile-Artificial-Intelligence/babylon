@@ -8,7 +8,11 @@ project(
     LANGUAGES CXX
 )
 
-set(BABYLON_BIN_DIR ${CMAKE_CURRENT_LIST_DIR}/bin CACHE PATH "Babylon output directory")
+set(BABYLON_BIN_DIR ${CMAKE_CURRENT_LIST_DIR}/bin CACHE PATH "Babylon executable output directory")
+set(BABYLON_LIB_DIR ${BABYLON_BIN_DIR}/lib CACHE PATH "Babylon shared library output directory")
+set(BABYLON_INSTALL_RUNTIME_DIR "bin" CACHE STRING "Babylon install directory for executables")
+set(BABYLON_INSTALL_LIBRARY_DIR "bin/lib" CACHE STRING "Babylon install directory for shared libraries")
+set(BABYLON_INSTALL_INCLUDE_DIR "include" CACHE STRING "Babylon install directory for public headers")
 
 # Enable C++17 standard
 set(CMAKE_CXX_STANDARD 17)
@@ -25,29 +29,55 @@ else()
 endif()
 
 # Add the babylon library
-add_library(
-    babylon
-    SHARED
+set(BABYLON_CORE_SOURCES
     src/lib/babylon.cpp
     src/lib/cleaners.cpp
     src/lib/phonemizer.cpp
     src/lib/voice.cpp
 )
 
+add_library(
+    babylon
+    SHARED
+    ${BABYLON_CORE_SOURCES}
+)
+
+if(WIN32)
+    add_library(
+        babylon_static
+        STATIC
+        ${BABYLON_CORE_SOURCES}
+    )
+    set_target_properties(
+        babylon_static
+        PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY ${BABYLON_LIB_DIR}
+    )
+endif()
+
 if(NOT APPLE AND NOT WIN32)
     target_link_options(babylon PRIVATE LINKER:--build-id=none)
     target_compile_options(babylon PRIVATE "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=babylon")
 endif()
 
-# Output the shared library alongside the CLI binary in bin/
+# Output shared libraries under bin/lib/
 set_target_properties(
     babylon
     PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${BABYLON_BIN_DIR}
+    LIBRARY_OUTPUT_DIRECTORY ${BABYLON_LIB_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${BABYLON_LIB_DIR}
+    ARCHIVE_OUTPUT_DIRECTORY ${BABYLON_LIB_DIR}
 )
 
-# On Linux/non-Apple: look for sibling shared libs in the same directory
-if(UNIX AND NOT APPLE AND NOT ANDROID)
+# Shared libraries resolve sibling dependencies from bin/lib on Unix-like platforms.
+if(APPLE)
+    set_target_properties(
+        babylon
+        PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "@loader_path"
+    )
+elseif(UNIX AND NOT ANDROID)
     set_target_properties(
         babylon
         PROPERTIES
@@ -142,18 +172,19 @@ else()
     set(ONNXRUNTIME_LIB "${ONNXRUNTIME_INSTALL_DIR}/lib/libonnxruntime.so")
 endif()
 
-# Copy the onnxruntime shared library into bin/ after it is built
+# Copy the onnxruntime shared library into bin/lib/ after it is built
 if(WIN32)
     add_custom_command(
-        OUTPUT  "${BABYLON_BIN_DIR}/onnxruntime.dll"
+        OUTPUT  "${BABYLON_LIB_DIR}/onnxruntime.dll"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_LIB_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_RUNTIME}"
-                "${BABYLON_BIN_DIR}/onnxruntime.dll"
+                "${BABYLON_LIB_DIR}/onnxruntime.dll"
         DEPENDS onnxruntime_build
-        COMMENT "Copying onnxruntime.dll to bin/"
+        COMMENT "Copying onnxruntime.dll to bin/lib/"
     )
     add_custom_target(copy_onnxruntime ALL
-        DEPENDS "${BABYLON_BIN_DIR}/onnxruntime.dll"
+        DEPENDS "${BABYLON_LIB_DIR}/onnxruntime.dll"
     )
 elseif(APPLE)
     # Copy all libonnxruntime*.dylib files preserving symlinks (-P).
@@ -162,31 +193,73 @@ elseif(APPLE)
     # embedded as the install name in the dylib and referenced by dependent
     # binaries, so both must be present in bin/.
     add_custom_command(
-        OUTPUT  "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
-        COMMAND bash -c "cp -Pf '${ONNXRUNTIME_INSTALL_DIR}/lib/'libonnxruntime*.dylib '${BABYLON_BIN_DIR}/'"
+        OUTPUT  "${BABYLON_LIB_DIR}/libonnxruntime.dylib"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_LIB_DIR}"
+        COMMAND bash -c "cp -Pf '${ONNXRUNTIME_INSTALL_DIR}/lib/'libonnxruntime*.dylib '${BABYLON_LIB_DIR}/'"
         DEPENDS onnxruntime_build
-        COMMENT "Copying libonnxruntime dylibs to bin/"
+        COMMENT "Copying libonnxruntime dylibs to bin/lib/"
     )
     add_custom_target(copy_onnxruntime ALL
-        DEPENDS "${BABYLON_BIN_DIR}/libonnxruntime.dylib"
+        DEPENDS "${BABYLON_LIB_DIR}/libonnxruntime.dylib"
     )
 else()
     add_custom_command(
-        OUTPUT  "${BABYLON_BIN_DIR}/libonnxruntime.so"
+        OUTPUT  "${BABYLON_LIB_DIR}/libonnxruntime.so"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_LIB_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_LIB}"
-                "${BABYLON_BIN_DIR}/libonnxruntime.so"
+                "${BABYLON_LIB_DIR}/libonnxruntime.so"
         DEPENDS onnxruntime_build
-        COMMENT "Copying libonnxruntime.so to bin/"
+        COMMENT "Copying libonnxruntime.so to bin/lib/"
     )
     add_custom_target(copy_onnxruntime ALL
-        DEPENDS "${BABYLON_BIN_DIR}/libonnxruntime.so"
+        DEPENDS "${BABYLON_LIB_DIR}/libonnxruntime.so"
     )
 endif()
 
-# Copy models/ into bin/models/ — uses a stamp so large files are only copied once.
-# Delete bin/.models_stamp to force a re-copy.
-# Skipped silently if the models/ directory doesn't exist (e.g. in CI).
+file(
+    GLOB BABYLON_LEGACY_RUNTIME_LIBS
+    LIST_DIRECTORIES false
+    "${BABYLON_BIN_DIR}/babylon.dll"
+    "${BABYLON_BIN_DIR}/libbabylon.*"
+    "${BABYLON_BIN_DIR}/onnxruntime.dll"
+    "${BABYLON_BIN_DIR}/libonnxruntime.so*"
+    "${BABYLON_BIN_DIR}/libonnxruntime*.dylib"
+)
+
+# Copy install-time assets into bin/ while keeping shared libraries isolated in bin/lib/.
+add_custom_target(clean_legacy_assets ALL
+    COMMAND ${CMAKE_COMMAND} -E rm -f
+            ${BABYLON_LEGACY_RUNTIME_LIBS}
+            "${BABYLON_BIN_DIR}/config.json"
+            "${BABYLON_BIN_DIR}/index.html"
+            "${BABYLON_BIN_DIR}/models/dictionary.json"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+            "${BABYLON_BIN_DIR}/visemes"
+            "${BABYLON_BIN_DIR}/models/kokoro-voices"
+            "${BABYLON_BIN_DIR}/models/kitten-voices"
+    COMMENT "Removing legacy asset paths from bin/"
+)
+
+file(
+    GLOB_RECURSE BABYLON_MODEL_ASSETS
+    LIST_DIRECTORIES false
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/models/*"
+)
+file(
+    GLOB_RECURSE BABYLON_VOICE_ASSETS
+    LIST_DIRECTORIES false
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/voices/*"
+)
+file(
+    GLOB_RECURSE BABYLON_DATA_ASSETS
+    LIST_DIRECTORIES false
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/*"
+)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
     add_custom_command(
         OUTPUT  "${BABYLON_BIN_DIR}/.models_stamp"
@@ -194,45 +267,41 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
                 "${CMAKE_CURRENT_SOURCE_DIR}/models"
                 "${BABYLON_BIN_DIR}/models"
         COMMAND ${CMAKE_COMMAND} -E touch "${BABYLON_BIN_DIR}/.models_stamp"
+        DEPENDS clean_legacy_assets ${BABYLON_MODEL_ASSETS}
         COMMENT "Copying models/ to bin/models/"
     )
     add_custom_target(copy_models ALL
         DEPENDS "${BABYLON_BIN_DIR}/.models_stamp"
     )
-
 endif()
 
-# Copy data/dictionary.json into bin/models/ (alongside the other model files)
-add_custom_target(copy_dictionary ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${BABYLON_BIN_DIR}/models"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/data/dictionary.json"
-            "${BABYLON_BIN_DIR}/models/dictionary.json"
-    COMMENT "Copying dictionary.json to bin/models/"
-)
-
-# Copy data/config.json into bin/ at every build (small file, always up to date)
-add_custom_target(copy_config ALL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/data/config.json"
-            "${BABYLON_BIN_DIR}/config.json"
-    COMMENT "Copying config.json to bin/"
-)
-
-# Copy data/index.html into bin/ at every build
-add_custom_target(copy_index ALL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/data/index.html"
-            "${BABYLON_BIN_DIR}/index.html"
-    COMMENT "Copying index.html to bin/"
-)
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data/visemes")
-    add_custom_target(copy_visemes ALL
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/voices")
+    add_custom_command(
+        OUTPUT  "${BABYLON_BIN_DIR}/.voices_stamp"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/data/visemes"
-                "${BABYLON_BIN_DIR}/visemes"
-        COMMENT "Copying viseme reference images to bin/visemes/"
+                "${CMAKE_CURRENT_SOURCE_DIR}/voices"
+                "${BABYLON_BIN_DIR}/voices"
+        COMMAND ${CMAKE_COMMAND} -E touch "${BABYLON_BIN_DIR}/.voices_stamp"
+        DEPENDS clean_legacy_assets ${BABYLON_VOICE_ASSETS}
+        COMMENT "Copying voices/ to bin/voices/"
+    )
+    add_custom_target(copy_voices ALL
+        DEPENDS "${BABYLON_BIN_DIR}/.voices_stamp"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data")
+    add_custom_command(
+        OUTPUT  "${BABYLON_BIN_DIR}/.data_stamp"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                "${BABYLON_BIN_DIR}/data"
+        COMMAND ${CMAKE_COMMAND} -E touch "${BABYLON_BIN_DIR}/.data_stamp"
+        DEPENDS clean_legacy_assets ${BABYLON_DATA_ASSETS}
+        COMMENT "Copying data/ to bin/data/"
+    )
+    add_custom_target(copy_data ALL
+        DEPENDS "${BABYLON_BIN_DIR}/.data_stamp"
     )
 endif()
 
@@ -259,11 +328,27 @@ target_include_directories(
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/submodules/json/single_include
 )
 
+if(WIN32)
+    target_include_directories(
+        babylon_static
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+        "${ONNXRUNTIME_INSTALL_DIR}/include/onnxruntime"
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/submodules/json/single_include
+    )
+endif()
+
 add_dependencies(babylon onnxruntime_build copy_onnxruntime)
+if(WIN32)
+    add_dependencies(babylon_static onnxruntime_build)
+endif()
 
 if(WIN32)
     target_link_libraries(
         babylon
+        onnxruntime
+    )
+    target_link_libraries(
+        babylon_static
         onnxruntime
     )
 elseif(APPLE)
@@ -285,4 +370,56 @@ option(BUILD_CLI "Build babylon CLI" OFF)
 
 if(BUILD_CLI)
     add_subdirectory(src/cli)
+endif()
+
+install(
+    TARGETS babylon
+    RUNTIME DESTINATION ${BABYLON_INSTALL_LIBRARY_DIR}
+    LIBRARY DESTINATION ${BABYLON_INSTALL_LIBRARY_DIR}
+    ARCHIVE DESTINATION ${BABYLON_INSTALL_LIBRARY_DIR}
+)
+
+install(
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+    DESTINATION ${BABYLON_INSTALL_INCLUDE_DIR}
+)
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data")
+    install(
+        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/"
+        DESTINATION "${BABYLON_INSTALL_RUNTIME_DIR}/data"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
+    install(
+        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/models/"
+        DESTINATION "${BABYLON_INSTALL_RUNTIME_DIR}/models"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/voices")
+    install(
+        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/voices/"
+        DESTINATION "${BABYLON_INSTALL_RUNTIME_DIR}/voices"
+    )
+endif()
+
+if(WIN32)
+    install(
+        FILES "${ONNXRUNTIME_RUNTIME}"
+        DESTINATION ${BABYLON_INSTALL_LIBRARY_DIR}
+    )
+elseif(APPLE)
+    install(
+        DIRECTORY "${ONNXRUNTIME_INSTALL_DIR}/lib/"
+        DESTINATION ${BABYLON_INSTALL_LIBRARY_DIR}
+        FILES_MATCHING
+        PATTERN "libonnxruntime*.dylib"
+    )
+else()
+    install(
+        FILES "${ONNXRUNTIME_LIB}"
+        DESTINATION ${BABYLON_INSTALL_LIBRARY_DIR}
+    )
 endif()
